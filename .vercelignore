@@ -1,0 +1,12 @@
+# Vercel Deployment Exclusions
+venv/
+data/cord_dataset/
+data/uploads/
+models/receipt_ner/
+models/llama3_qlora/
+.pytest_cache/
+__pycache__/
+*.pyc
+tests/
+scripts/train_llama3_qlora.py
+src/train.py

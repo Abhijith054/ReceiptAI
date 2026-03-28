@@ -1,13 +1,14 @@
-# Core ML
+# Core ML (Lightweight/Inference-only)
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 transformers>=4.38.0
-datasets>=2.18.0
 seqeval>=1.2.2
-peft>=0.9.0
-evaluate>=0.4.1
 
 # API
 fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
 
