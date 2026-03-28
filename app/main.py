@@ -19,14 +19,19 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-# Setup Tesseract with more robust pathing
-TESS_CMD = os.environ.get("TESSERACT_CMD", "/usr/bin/tesseract")
-if not os.path.isfile(TESS_CMD):
-    # Try common Homebrew/apt paths
+import shutil
+# Setup Tesseract with hybrid discovery (PATH search + common absolute paths)
+TESS_CMD = os.environ.get("TESSERACT_CMD")
+if not TESS_CMD:
+    TESS_CMD = shutil.which("tesseract")
+
+if not TESS_CMD or not os.path.isfile(TESS_CMD):
+    # Search common fallbacks if PATH lookup failed
     for p in ["/opt/homebrew/bin/tesseract", "/usr/bin/tesseract", "/usr/local/bin/tesseract"]:
         if os.path.isfile(p):
             TESS_CMD = p
             break
+
 
 try:
     import pytesseract
@@ -205,10 +210,9 @@ async def extract_from_upload(
                 ocr_text = pytesseract.image_to_string(img, config='--psm 6')
             except Exception as e:
                 print(f"[API] OCR failed or not configured: {e}")
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Tesseract OCR failed to run. Error: {str(e)}"
-                )
+                # Don't crash on Vercel. Instead, provide a helpful fallback message.
+                ocr_text = f"--- [RECERPT_AI_SYSTEM_ERROR] ---\nCould not process image via OCR (Tesseract missing in this environment).\n\nNOTE: You can still paste the receipt text directly into the chat box or use the 'New Chat' feature to try manual entry."
+
         else:
             # .txt file or plain text upload
             try:
