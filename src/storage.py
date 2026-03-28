@@ -17,8 +17,17 @@ class RecordStorage:
     """Persist and retrieve extracted receipt records."""
 
     def __init__(self, records_file: str = RECORDS_FILE):
-        self.records_file = Path(records_file)
-        self.records_file.parent.mkdir(parents=True, exist_ok=True)
+        # Allow environment override (essential for Vercel /tmp usage)
+        env_path = os.environ.get("STORAGE_FILE")
+        self.records_file = Path(env_path) if env_path else Path(records_file)
+        
+        # Only attempt mkdir if the directory doesn't already exist and is writable
+        if not self.records_file.parent.exists():
+            try:
+                self.records_file.parent.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                # Silently proceed (e.g. read-only fs)
+                pass
         # In-memory cache
         self._cache: Dict[str, Dict] = {}
         self._load_all()

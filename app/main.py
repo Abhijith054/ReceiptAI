@@ -70,14 +70,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Detect Vercel / Read-only environments
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+
+# Prepare data and uploads directories (pivot to /tmp if ready-only)
+DATA_DIR = PROJECT_ROOT / "data"
+UPLOADS_DIR = DATA_DIR / "uploads"
+
+if IS_VERCEL:
+    UPLOADS_DIR = Path("/tmp/uploads")
+    STORAGE_FILE = Path("/tmp/extracted_records.jsonl")
+    # Redirect storage provider to use tmp file
+    os.environ["STORAGE_FILE"] = str(STORAGE_FILE)
+else:
+    STORAGE_FILE = DATA_DIR / "extracted_records.jsonl"
+
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 # Serve frontend static files
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
-if FRONTEND_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+if FRONTEND_DIR.exists() and not IS_VERCEL:
+     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
-UPLOADS_DIR = PROJECT_ROOT / "data" / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+if not IS_VERCEL:
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
 # ─── Pydantic models ─────────────────────────────────────────────────────────
