@@ -98,11 +98,15 @@ except Exception as e:
 
 # Serve frontend static files
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
-if FRONTEND_DIR.exists() and not IS_VERCEL:
-     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+if FRONTEND_DIR.exists():
+     # This tells FastAPI to serve index.html at the root URL (/)
+     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 if not IS_VERCEL:
-    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+    try:
+        app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+    except:
+        pass
 
 
 # ─── Pydantic models ─────────────────────────────────────────────────────────
