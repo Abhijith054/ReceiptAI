@@ -10,8 +10,8 @@ python-multipart>=0.0.9
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
 
-# QA / LLM
-groq>=0.5.0
+# DB
+pymongo[srv]>=4.6.0
 
 # Utilities
 Pillow>=10.0.0

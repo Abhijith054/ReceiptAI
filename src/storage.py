@@ -1,8 +1,3 @@
-"""
-Storage layer for extracted receipt records.
-Uses JSON-Lines format (one JSON object per line) in data/extracted_records.jsonl.
-"""
-
 import json
 import os
 import uuid
@@ -10,10 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# Constants
 RECORDS_FILE = "data/extracted_records.jsonl"
+MONGO_URI = os.environ.get("MONGODB_URI")
 
 
 class RecordStorage:
+    """Interface and Local File Storage (JSON-Lines)."""
     """Persist and retrieve extracted receipt records."""
 
     def __init__(self, records_file: str = RECORDS_FILE):
@@ -118,23 +116,61 @@ class RecordStorage:
         return False
 
     def search(self, query: str) -> List[Dict]:
-        """
-        Simple fuzzy search over vendor name, date, total.
-        Used by the QA engine to locate relevant documents.
-        """
+        """Simple fuzzy search over vendor name, date, total."""
         query_lower = query.lower()
         results = []
         for record in self._cache.values():
             ex = record.get("extracted", {})
-            haystack = " ".join(
-                str(v) for v in ex.values() if v
-            ).lower()
-            if query_lower in haystack or any(
-                w in haystack for w in query_lower.split()
-                if len(w) > 2
-            ):
+            haystack = " ".join(str(v) for v in ex.values() if v).lower()
+            if query_lower in haystack:
                 results.append(record)
         return results
+
+
+class MongoStorage:
+    """Production MongoDB Storage."""
+
+    def __init__(self, uri: str):
+        from pymongo import MongoClient
+        self.client = MongoClient(uri)
+        self.db = self.client["receipt_ai"]
+        self.collection = self.db["records"]
+        print("[Storage] MongoDB Atlas connected.")
+
+    def save_record(self, doc_id: str, data: Dict, session_id: Optional[str] = None):
+        record = {
+            "doc_id": doc_id,
+            "session_id": session_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "extracted": data,
+        }
+        self.collection.update_one({"doc_id": doc_id}, {"$set": record}, upsert=True)
+
+    def get_record(self, doc_id: str) -> Optional[Dict]:
+        return self.collection.find_one({"doc_id": doc_id}, {"_id": 0})
+
+    def get_all_records(self, session_id: Optional[str] = None) -> List[Dict]:
+        query = {"session_id": session_id} if session_id else {}
+        return list(self.collection.find(query, {"_id": 0}).sort("timestamp", -1))
+
+    def delete_record(self, doc_id: str) -> bool:
+        res = self.collection.delete_one({"doc_id": doc_id})
+        return res.deleted_count > 0
+
+    def search(self, query: str) -> List[Dict]:
+        query_re = re.compile(query, re.IGNORECASE)
+        # Search across all extracted fields
+        return list(self.collection.find({
+            "$or": [
+                {"extracted.vendor_name": query_re},
+                {"extracted.total_amount": query_re},
+                {"doc_id": query_re}
+            ]
+        }, {"_id": 0}))
+
+
+# Singleton
+_storage_instance: Optional[RecordStorage] = None
 
 
 # Singleton
@@ -144,5 +180,9 @@ _storage_instance: Optional[RecordStorage] = None
 def get_storage() -> RecordStorage:
     global _storage_instance
     if _storage_instance is None:
-        _storage_instance = RecordStorage()
+        if MONGO_URI:
+            # Note: We duck-type MongoStorage to match RecordStorage interface
+            _storage_instance = MongoStorage(MONGO_URI)
+        else:
+            _storage_instance = RecordStorage()
     return _storage_instance
