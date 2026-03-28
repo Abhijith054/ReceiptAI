@@ -35,7 +35,7 @@ if not TESS_CMD or not os.path.isfile(TESS_CMD):
 
 try:
     import pytesseract
-    if os.path.isfile(TESS_CMD):
+    if TESS_CMD and os.path.isfile(TESS_CMD):
         pytesseract.pytesseract.tesseract_cmd = TESS_CMD
     else:
         print("[System] Tesseract not found. Image OCR will be disabled.")
