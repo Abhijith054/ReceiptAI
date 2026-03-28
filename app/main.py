@@ -19,14 +19,24 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-# ── Ensure Tesseract binary is discoverable regardless of shell PATH ──
+# Setup Tesseract with more robust pathing
+TESS_CMD = os.environ.get("TESSERACT_CMD", "/usr/bin/tesseract")
+if not os.path.isfile(TESS_CMD):
+    # Try common Homebrew/apt paths
+    for p in ["/opt/homebrew/bin/tesseract", "/usr/bin/tesseract", "/usr/local/bin/tesseract"]:
+        if os.path.isfile(p):
+            TESS_CMD = p
+            break
+
 try:
     import pytesseract
-    _tess_cmd = os.environ.get("TESSERACT_CMD", "/opt/homebrew/bin/tesseract")
-    if os.path.isfile(_tess_cmd):
-        pytesseract.pytesseract.tesseract_cmd = _tess_cmd
+    if os.path.isfile(TESS_CMD):
+        pytesseract.pytesseract.tesseract_cmd = TESS_CMD
+    else:
+        print("[System] Tesseract not found. Image OCR will be disabled.")
 except ImportError:
-    pass
+    print("[System] Pytesseract library not installed.")
+
 
 # Trigger reloader
 import uvicorn
