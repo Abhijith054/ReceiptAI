@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-
-=======
 # 🧾 ReceiptAI — Intelligent Document Analysis
 
 ReceiptAI is a modern, high-performance platform for extracting structured information from receipts using localized NER (Named Entity Recognition) and advanced LLaMA-based fine-tuning.
@@ -56,5 +53,3 @@ pytest tests/ -v
 ```
 
 *ML Engineer Role Assessment — ReceiptAI focuses on precision, modularity, and premium user experience.*
->>>>>>> 945c64b (🚀 Initial Release: ReceiptAI Session-Based Document Analytics Platform)
-# ee
