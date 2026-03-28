@@ -3,7 +3,8 @@
  * NEXA/AURA Dark-Theme Assistant Logic
  */
 
-const API = "http://localhost:8000";
+// Use window.location.origin to handle both localhost and production (Vercel) automatically
+const API = window.location.origin;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let sessionId = localStorage.getItem("receipt_ia_sid") || uuidv4();
