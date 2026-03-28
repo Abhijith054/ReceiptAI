@@ -57,3 +57,4 @@ pytest tests/ -v
 
 *ML Engineer Role Assessment — ReceiptAI focuses on precision, modularity, and premium user experience.*
 >>>>>>> 945c64b (🚀 Initial Release: ReceiptAI Session-Based Document Analytics Platform)
+# ee
