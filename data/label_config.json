@@ -1,0 +1,35 @@
+{
+  "label_list": [
+    "O",
+    "B-TOTAL",
+    "I-TOTAL",
+    "B-DATE",
+    "I-DATE",
+    "B-VENDOR",
+    "I-VENDOR",
+    "B-ID",
+    "I-ID"
+  ],
+  "label2id": {
+    "O": 0,
+    "B-TOTAL": 1,
+    "I-TOTAL": 2,
+    "B-DATE": 3,
+    "I-DATE": 4,
+    "B-VENDOR": 5,
+    "I-VENDOR": 6,
+    "B-ID": 7,
+    "I-ID": 8
+  },
+  "id2label": {
+    "0": "O",
+    "1": "B-TOTAL",
+    "2": "I-TOTAL",
+    "3": "B-DATE",
+    "4": "I-DATE",
+    "5": "B-VENDOR",
+    "6": "I-VENDOR",
+    "7": "B-ID",
+    "8": "I-ID"
+  }
+}

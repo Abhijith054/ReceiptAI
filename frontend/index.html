@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en" class="antialiased">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReceiptAI - Intelligent Extraction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        gray: {
+                            900: '#111111',
+                            950: '#0a0a0a',
+                        },
+                        indigo: {
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                        },
+                        emerald: {
+                            500: '#10b981',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ededed;
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .sidebar-panel {
+            background-color: rgba(0, 0, 0, 0.15);
+            /* Highly transparent */
+            backdrop-filter: blur(4px);
+            /* Very subtle blur so particles are clear */
+            -webkit-backdrop-filter: blur(4px);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .chat-panel {
+            background-color: transparent;
+        }
+
+        .bubble-user {
+            background: #6366f1;
+            color: white;
+            border-radius: 1.25rem 1.25rem 0.25rem 1.25rem;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+        }
+
+        .bubble-assistant {
+            background: #111111;
+            color: #d1d5db;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 1.25rem 1.25rem 1.25rem 0.25rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .input-container {
+            background-color: #090909;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        #send-btn {
+            background-color: #111111;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            color: #888;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #send-btn:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            background-color: #141414;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.02);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-slide-in {
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: #6366f1;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .amber-glow {
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.1);
+        }
+
+        .active-item {
+            background: rgba(99, 102, 241, 0.1);
+            color: white;
+            border-right: 2px solid #6366f1;
+        }
+
+        .ambient-gradient {
+            background: radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
+        }
+    </style>
+</head>
+
+<body class="h-screen flex overflow-hidden font-sans">
+
+    <!-- Sidebar -->
+    <aside class="w-72 flex flex-col sidebar-panel shrink-0 z-20">
+        <div class="h-20 flex items-center px-8 border-b border-white/5">
+            <span class="font-bold text-xl tracking-tight text-white flex items-center gap-3">
+                <iconify-icon icon="solar:box-minimalistic-linear" class="text-indigo-500 text-2xl"></iconify-icon>
+                ReceiptAI
+            </span>
+        </div>
+        <!-- New Chat -->
+        <div class="px-6 mt-6">
+            <button id="new-chat-btn" class="group w-full flex overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_25px_rgba(99,102,241,0.2)] rounded-xl pt-[1px] pr-[1px] pb-[1px] pl-[1px] relative items-center justify-center">
+                <span class="absolute inset-[-100%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_75%,#6366f1_100%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
+                <span class="absolute inset-0 rounded-xl bg-gray-900 transition-opacity duration-300 group-hover:opacity-0"></span>
+                <span class="flex items-center justify-center gap-2 transition-colors duration-300 group-hover:text-white text-xs font-bold text-gray-400 bg-gray-900 w-full h-full rounded-xl py-3 relative shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]">
+                    <iconify-icon icon="solar:add-circle-bold" class="relative z-10 text-base"></iconify-icon>
+                    <span class="relative z-10 tracking-tight">New Chat</span>
+                </span>
+            </button>
+        </div>
+
+        <!-- Search -->
+        <div class="px-6 mt-6 mb-4">
+            <div class="relative group">
+                <iconify-icon icon="solar:magnifer-linear"
+                    class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-indigo-500 transition-colors"></iconify-icon>
+                <input type="text" placeholder="Search sessions..."
+                    class="w-full bg-white/5 border border-white/5 rounded-xl py-2 pl-10 pr-4 text-xs font-medium focus:border-indigo-500/30 focus:outline-none transition-all placeholder-gray-700 font-inter">
+            </div>
+        </div>
+
+        <!-- Doc List -->
+        <div class="flex-1 overflow-y-auto px-4 space-y-6 pt-2">
+            <div>
+                <div class="flex items-center justify-between px-4 mb-3 mt-2">
+                    <span class="text-[10px] font-bold text-gray-700 uppercase tracking-widest">Chat History</span>
+                    <input type="file" id="file-input" accept="image/*,.txt" class="hidden" />
+                </div>
+                <div id="doc-list" class="space-y-0.5">
+                    <!-- Dynamic docs -->
+                </div>
+            </div>
+
+            <!-- Data Management -->
+            <div class="mt-8">
+                <span class="px-4 text-[10px] font-bold text-gray-700 uppercase tracking-widest block mb-1.5 opacity-60">Data Management</span>
+                <nav class="space-y-0.5 text-xs text-slate-500 font-medium font-inter">
+                    <a href="#" id="view-docs-btn"
+                        class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] hover:text-slate-300 rounded-lg transition-colors group">
+                        <iconify-icon icon="solar:folder-with-files-bold"
+                            class="text-lg text-gray-700 group-hover:text-indigo-400 transition-colors"></iconify-icon> 
+                        View Documents
+                    </a>
+                    <a href="#" id="view-json-btn"
+                        class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] hover:text-slate-300 rounded-lg transition-colors group">
+                        <iconify-icon icon="solar:code-square-bold" 
+                            class="text-lg text-gray-700 group-hover:text-emerald-400 transition-colors"></iconify-icon>
+                        Structured Data
+                    </a>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-white/5 mt-auto">
+            <div class="flex items-center gap-3 mb-6 px-2">
+                <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-xs">U</div>
+                <div class="flex flex-col min-w-0">
+                    <span class="text-[11px] font-bold text-white truncate">chatbot.prc2025@gmail.com</span>
+                    <span class="text-[10px] text-indigo-400 font-bold uppercase tracking-tighter">Student
+                        Account</span>
+                </div>
+            </div>
+            <button
+                class="group w-full flex overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_25px_rgba(239,68,68,0.2)] rounded-xl pt-[1px] pr-[1px] pb-[1px] pl-[1px] relative items-center justify-center">
+                <span
+                    class="absolute inset-[-100%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_75%,#ef4444_100%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
+                <span
+                    class="absolute inset-0 rounded-xl bg-gray-900 transition-opacity duration-300 group-hover:opacity-0"></span>
+                <span
+                    class="flex items-center justify-center gap-2 transition-colors duration-300 group-hover:text-red-500 text-xs font-bold text-gray-400 bg-gray-900 w-full h-full rounded-xl py-2.5 relative shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]">
+                    <iconify-icon icon="solar:logout-bold" class="relative z-10 text-base"></iconify-icon>
+                    <span class="relative z-10 tracking-tight">Logout</span>
+                </span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col relative chat-panel ambient-gradient">
+        <!-- Header -->
+        <header class="h-20 flex items-center px-10 shrink-0 border-b border-white/5">
+            <div class="flex flex-col">
+                <h2 id="chat-title" class="text-base font-bold text-white tracking-tight">New Conversation</h2>
+                <div class="flex items-center gap-2 mt-0.5">
+                    <div id="status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></div>
+                    <span id="api-status-text"
+                        class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Assistant Online</span>
+                </div>
+            </div>
+
+
+        </header>
+
+        <!-- Messages -->
+        <div class="flex-1 overflow-y-auto px-10 py-10 space-y-10" id="chat-messages">
+            <!-- Bot Welcome -->
+            <div class="flex items-start gap-4 max-w-3xl animate-slide-in">
+                <div
+                    class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" class="w-5 h-5">
+                        <path d="M12 8V4H8"></path>
+                        <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+                        <path d="M2 14h2"></path>
+                        <path d="M20 14h2"></path>
+                        <path d="M15 13v2"></path>
+                        <path d="M9 13v2"></path>
+                    </svg>
+                </div>
+                <div class="bubble-assistant p-4 text-sm leading-relaxed">
+                    Hi there! I'm your ReceiptAI assistant. You can upload a document using the **plus button** in the
+                    sidebar, and I'll extract everything for you.
+                    <br><br>
+                    How can I assist you today?
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Section -->
+        <div class="p-10 pt-4 relative">
+            <div class="max-w-4xl mx-auto flex w-full justify-center">
+                <div
+                    class="group relative flex w-full overflow-hidden transition-all duration-300 hover:shadow-[0_0_25px_rgba(255,255,255,0.1)] rounded-full p-[1px] items-center">
+
+                    <!-- Spinning conic gradient border on hover -->
+                    <span
+                        class="absolute inset-[-100%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_75%,#ffffff_100%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
+
+                    <!-- Solid background fading out on hover -->
+                    <span
+                        class="absolute inset-0 rounded-full bg-[#0d0d0d] transition-opacity duration-300 group-hover:opacity-0"></span>
+
+                    <!-- Inner container with actual fields -->
+                    <div
+                        class="flex items-center w-full bg-[#0a0a0a] rounded-full p-1.5 relative shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] border border-transparent group-hover:border-white/5 transition-all">
+
+                        <!-- Upload icon on the left -->
+                        <button id="inline-upload-btn"
+                            class="w-10 h-10 shrink-0 rounded-full hover:bg-white/5 text-gray-500 hover:text-white flex items-center justify-center transition-all active:scale-90"
+                            title="Upload Document">
+                            <iconify-icon icon="solar:upload-minimalistic-linear" class="text-xl"></iconify-icon>
+                        </button>
+
+                        <!-- Input Box & Embedded Send Button -->
+                        <div class="flex-1 relative flex items-center h-full">
+                            <input type="text" id="chat-input" placeholder="Ask anything about the document..."
+                                class="w-full bg-transparent pl-3 pr-14 py-3 text-sm text-gray-200 focus:outline-none placeholder-gray-600 font-inter">
+
+                            <!-- Send Button -->
+                            <button id="send-btn" disabled
+                                class="absolute right-1 w-9 h-9 shrink-0 rounded-full bg-white/[0.04] border border-white/[0.05] flex items-center justify-center text-gray-500 transition-all duration-300 group outline-none disabled:opacity-40 disabled:cursor-not-allowed hover:not(:disabled):bg-white/10 hover:not(:disabled):text-white hover:not(:disabled):shadow-[0_0_15px_rgba(255,255,255,0.05)] active:not(:disabled):scale-95">
+                                <iconify-icon icon="solar:plain-2-linear"
+                                    class="text-xl transition-all duration-300 group-hover:not(:disabled):translate-x-0.5 group-hover:not(:disabled):-translate-y-0.5 group-active:not(:disabled):translate-x-1.5 group-active:not(:disabled):-translate-y-1.5 group-active:not(:disabled):opacity-60"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="fixed top-8 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-[100]"></div>
+
+    <script src="/static/app.js"></script>
+    <!-- Particles Background -->
+    <div id="particles-js" class="absolute inset-0 -z-10"></div>
+    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            particlesJS('particles-js', {
+                particles: {
+                    number: { value: 80, density: { enable: true, value_area: 800 } },
+                    color: { value: "#ffffff" },
+                    shape: { type: "circle" },
+                    opacity: { value: 0.5, random: false },
+                    size: { value: 3, random: true },
+                    line_linked: { enable: true, distance: 150, color: "#ffffff", opacity: 0.4, width: 1 },
+                    move: { enable: true, speed: 3, direction: "none", random: false, straight: false, out_mode: "out", bounce: false }
+                },
+                interactivity: {
+                    detect_on: "canvas",
+                    events: { onhover: { enable: true, mode: "repulse" }, onclick: { enable: true, mode: "push" }, resize: true },
+                    modes: { grab: { distance: 400, line_linked: { opacity: 1 } }, bubble: { distance: 400, size: 40, duration: 2, opacity: 8, speed: 3 }, repulse: { distance: 200, duration: 0.4 }, push: { particles_nb: 4 }, remove: { particles_nb: 2 } }
+                },
+                retina_detect: true
+            });
+        });
+    </script>
+</body>
+
+</html>
