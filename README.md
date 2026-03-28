@@ -1,3 +1,12 @@
+---
+title: ReceiptAI
+emoji: 🧾
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
 # 🧾 ReceiptAI — Intelligent Document Analysis
 
 ReceiptAI is a modern, high-performance platform for extracting structured information from receipts using localized NER (Named Entity Recognition) and advanced LLaMA-based fine-tuning.
