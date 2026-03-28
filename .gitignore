@@ -6,6 +6,7 @@ venv/
 .env
 
 # Data & Models
+data/cord_dataset/
 data/uploads/
 data/*.jsonl
 models/receipt_ner/
