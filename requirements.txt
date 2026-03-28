@@ -1,8 +1,6 @@
-# Core ML (Lightweight/Inference-only)
---extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.0.0
-transformers>=4.38.0
-seqeval>=1.2.2
+# Core (Lightweight for Vercel)
+# Local ML removed for Vercel compatibility (500MB limit).
+# Extraction will use Regex + Groq LLM fallback.
 
 # API
 fastapi>=0.110.0
