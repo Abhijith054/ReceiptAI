@@ -90,7 +90,10 @@ if IS_VERCEL:
 else:
     STORAGE_FILE = DATA_DIR / "extracted_records.jsonl"
 
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print(f"[System] Warning: Could not initialize local disk paths ({e}). Environment may be restricted.")
 
 
 # Serve frontend static files
