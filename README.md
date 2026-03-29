@@ -1,6 +1,5 @@
 ---
 title: ReceiptAI
-emoji: 🧾
 colorFrom: indigo
 colorTo: blue
 sdk: docker
