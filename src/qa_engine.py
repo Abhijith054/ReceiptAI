@@ -18,10 +18,9 @@ def groq_answer(question: str, records: List[Dict], api_key: str) -> str:
             ex = r.get("extracted", {})
             context_parts.append(
                 f"Document ID: {r['doc_id']}\n"
-                f"Vendor: {ex.get('vendor_name', 'Unknown')}\n"
+                f"Vendor: {ex.get('vendor', 'Unknown')}\n"
                 f"Date: {ex.get('date', 'Unknown')}\n"
                 f"Total Amount: {ex.get('total_amount', 'Unknown')}\n"
-                f"Receipt ID: {ex.get('receipt_id', 'Unknown')}\n"
                 f"Filename: {r.get('filename', 'Unknown')}\n"
             )
         
@@ -68,7 +67,7 @@ def rule_based_answer(question: str, record: Dict) -> str:
         val = ex.get("date")
         return f"This receipt is dated **{val}**." if val else "Date not found."
     elif "vendor" in q or "where" in q:
-        val = ex.get("vendor_name")
+        val = ex.get("vendor")
         return f"The vendor is **{val}**." if val else "Vendor not found."
     
     return "I found this receipt but I'm not sure what you're asking. Try asking about the 'total', 'date', or 'vendor'."
