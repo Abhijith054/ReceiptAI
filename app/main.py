@@ -308,7 +308,7 @@ def verify_otp(req: VerifyRequest):
 
 
 @app.post("/extract", tags=["Extraction"])
-async def extract_from_upload(
+def extract_from_upload(
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
     doc_id: Optional[str] = Form(None),
@@ -334,7 +334,7 @@ async def extract_from_upload(
 
     if file is not None:
         filename = file.filename
-        content = await file.read()
+        content = file.file.read()
         
         # Save image to disk (for temporary local caching)
         ext = Path(filename).suffix if filename else ".jpg"
@@ -418,7 +418,7 @@ async def extract_from_upload(
 
 
 @app.post("/extract/text", tags=["Extraction"])
-async def extract_from_text(body: TextExtractRequest):
+def extract_from_text(body: TextExtractRequest):
     """Extract from raw OCR text (JSON body). Useful for API clients."""
     extractor = get_extractor()
     storage = get_storage()
@@ -443,7 +443,7 @@ async def extract_from_text(body: TextExtractRequest):
 
 
 @app.post("/query", tags=["QA"])
-async def query(body: QueryRequest):
+def query(body: QueryRequest):
     """
     Answer a natural language question about extracted receipt data.
 
@@ -459,7 +459,7 @@ async def query(body: QueryRequest):
 
 
 @app.get("/documents", tags=["Documents"])
-async def list_documents(limit: int = 50, session_id: Optional[str] = None):
+def list_documents(limit: int = 50, session_id: Optional[str] = None):
     """List all extracted receipt records, optionally filtered by session_id."""
     storage = get_storage()
     records = storage.list_all(limit=limit, session_id=session_id)
