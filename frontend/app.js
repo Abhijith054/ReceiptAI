@@ -425,10 +425,17 @@ sendOtpBtn.addEventListener("click", async () => {
         });
 
         if (r.ok) {
+            const data = await r.json();
             userEmail = email;
             loginEmailView.classList.add("hidden");
             loginOtpView.classList.remove("hidden");
-            toast("Verification code sent", "success");
+            
+            if (data.dev && data.otp) {
+                toast(`Dev Mode / Render Fallback: Code is ${data.otp}`, "success");
+                loginOtpInput.value = data.otp; // Auto-fill for convenience
+            } else {
+                toast("Verification code sent", "success");
+            }
         } else {
             const data = await r.json();
             showLoginError(data.detail || "Failed to send code");

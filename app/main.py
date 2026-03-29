@@ -182,7 +182,8 @@ async def send_otp(req: EmailRequest):
     
     storage.save_otp(email, otp_hash, expires_at)
     
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+    resend_key = os.environ.get("RESEND_API_KEY")
+    if not resend_key and (not GMAIL_USER or not GMAIL_APP_PASSWORD):
         print(f"[AUTH] NO CREDENTIALS. OTP FOR {email}: {otp}")
         return {"message": "OTP sent (dev mode)", "dev": True, "otp": otp}
 
@@ -245,10 +246,28 @@ async def send_otp(req: EmailRequest):
         msg.attach(MIMEText(text_version, "plain"))
         msg.attach(MIMEText(html_version, "html"))
         
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.send_message(msg)
+        if resend_key:
+            import requests
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": "ReceiptAI <onboarding@resend.dev>",
+                    "to": [email],
+                    "subject": "ReceiptAI Verification Code",
+                    "html": html_version
+                }
+            )
+            if not response.ok:
+                raise Exception(f"Resend API Error: {response.text}")
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                server.starttls()
+                server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                server.send_message(msg)
             
         return {"message": "OTP sent successfully"}
     except Exception as e:
