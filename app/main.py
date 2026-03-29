@@ -340,8 +340,13 @@ async def delete_document(doc_id: str):
 
 # ── Static File Mounting (MUST BE LAST) ──────────────────────────────────────
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
 if FRONTEND_DIR.exists():
+    # Primary mount for standard asset calls (/app.js, /style.css)
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    
+    # Secondary mount for explicit static calls (/static/app.js)
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 if not IS_VERCEL:
     try:
@@ -351,4 +356,4 @@ if not IS_VERCEL:
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
