@@ -55,7 +55,11 @@ class ReceiptExtractor:
                 if "token_type_ids" in self._tokenizer.model_input_names:
                     self._tokenizer.model_input_names.remove("token_type_ids")
 
-            self._model = AutoModelForTokenClassification.from_pretrained(self.model_dir)
+            self._model = AutoModelForTokenClassification.from_pretrained(
+                self.model_dir, 
+                low_cpu_mem_usage=True,
+                # use_safetensors=True is default if available
+            )
             self._pipeline = pipeline(
                 "token-classification",
                 model=self._model,

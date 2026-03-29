@@ -249,12 +249,24 @@ def regex_extract(text: str) -> Dict:
             
         # If it doesn't have too many numbers (like a phone/tax ID), it's probably the vendor brand.
         if not re.search(r'\d{5,}', line) and not TOTAL_RE.search(line):
+            # Check if line contains "cash" or "change" - if so, likely not vendor
+            if re.search(r'\b(cash|change|due|balance|tendered)\b', line, re.I):
+                continue
             result["vendor_name"] = line
             break
 
-    m = ID_RE.search(text)
-    if m:
-        result["receipt_id"] = m.group(1)
+    # Final Cleanup
+    if result["total_amount"]:
+        # Only keep digits and decimal point
+        cleaned = re.sub(r'[^\d\.\,]', '', result["total_amount"])
+        # Remove trailing dots
+        result["total_amount"] = cleaned.strip('.')
+
+    if result["vendor_name"]:
+        # Remove common artifacts like << or symbols at end
+        result["vendor_name"] = re.sub(r'[^a-zA-Z0-9\s&\'\.]', '', result["vendor_name"]).strip()
+
+    result["receipt_id"] = m.group(1) if (m := ID_RE.search(text)) else None
 
     return result
 
