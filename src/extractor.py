@@ -31,10 +31,17 @@ class ReceiptExtractor:
         self._tokenizer = None
         self._model_loaded = False
         self._pipeline = None
-        self._try_load_model()
+        
+        # Check if we should skip to avoid OOM
+        self.skip_local = os.environ.get("SKIP_LOCAL_MODEL", "0") == "1"
 
     def _try_load_model(self):
-        """Load your fine-tuned DistilBERT model from the models/ folder."""
+        """Load your fine-tuned DistilBERT model. Lazy-called if needed."""
+        if self._model_loaded: return
+        if self.skip_local:
+            print("[Extractor] SKIP_LOCAL_MODEL=1 detected. Using Regex/AI fallback flow.")
+            return
+
         try:
             from transformers import (
                 AutoTokenizer,
@@ -47,7 +54,7 @@ class ReceiptExtractor:
                 print(f"[Extractor] Warning: Fine-tuned model not found at {self.model_dir}.")
                 return
 
-            print(f"[Extractor] Initializing Fine-tuned NER model…")
+            print(f"[Extractor] Initializing Fine-tuned NER model (Memory-intensive)…")
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
             
             # Hotfix: Ensure token_type_ids are not enabled for DistilBERT
@@ -55,7 +62,12 @@ class ReceiptExtractor:
                 if "token_type_ids" in self._tokenizer.model_input_names:
                     self._tokenizer.model_input_names.remove("token_type_ids")
 
-            self._model = AutoModelForTokenClassification.from_pretrained(self.model_dir)
+            # Load with minimal settings to save memory
+            self._model = AutoModelForTokenClassification.from_pretrained(
+                self.model_dir,
+                low_cpu_mem_usage=True
+            )
+            
             self._pipeline = pipeline(
                 "token-classification",
                 model=self._model,
@@ -66,7 +78,8 @@ class ReceiptExtractor:
             print("[Extractor] Trained Model System: ONLINE ✓")
 
         except Exception as e:
-            print(f"[Extractor] Load failed: {e}")
+            print(f"[Extractor] Load failed (likely OOM or missing dependencies): {e}")
+            self.skip_local = True
 
     def _extract_with_groq(self, text: str) -> Optional[Dict]:
         """Use High-Performance Groq LLM (Llama-3) for extraction if local model fails."""
@@ -136,12 +149,6 @@ JSON Output:"""
 
     def extract(self, text: str) -> Dict:
         """
-        Primary Extraction Loop:
-        1. Trained DistilBERT Model (Primary Intelligence)
-        2. Regex (Precision Fallback)
-        """
-    def extract(self, text: str) -> Dict:
-        """
         Final Production Extraction Pipeline:
         1. Normalization
         2. Local Model (Primary if loaded)
@@ -149,6 +156,9 @@ JSON Output:"""
         4. Groq LLM (High-Confidence Fallback)
         5. Validation & Strict Formatting
         """
+        # Trigger lazy load
+        self._try_load_model()
+        
         from src.data_processor import normalize_ocr, regex_extract
         
         # 0. Normalize & Log
