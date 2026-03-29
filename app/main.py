@@ -96,17 +96,8 @@ except Exception as e:
     print(f"[System] Warning: Could not initialize local disk paths ({e}). Environment may be restricted.")
 
 
-# Serve frontend static files
-FRONTEND_DIR = PROJECT_ROOT / "frontend"
-if FRONTEND_DIR.exists():
-     # This tells FastAPI to serve index.html at the root URL (/)
-     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
-if not IS_VERCEL:
-    try:
-        app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-    except:
-        pass
+# Wait to mount frontend at the end after API routes
 
 
 # ─── Pydantic models ─────────────────────────────────────────────────────────
@@ -345,3 +336,19 @@ async def delete_document(doc_id: str):
     if not storage.delete_record(doc_id):
         raise HTTPException(status_code=404, detail=f"Document '{doc_id}' not found.")
     return {"message": f"Document '{doc_id}' deleted."}
+
+
+# ── Static File Mounting (MUST BE LAST) ──────────────────────────────────────
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+
+if not IS_VERCEL:
+    try:
+        app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+    except:
+        pass
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

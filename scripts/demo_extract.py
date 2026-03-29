@@ -14,8 +14,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 SAMPLE_RECEIPTS = [
     {
-        "name": "abhijith@ABHIJITHs-MacBook-Pro Placement % git push huggingface main --force
-remote: Password authentication in git is no longer supported. You must use a user access token or an SSH key instead. See https://huggingface.co/blog/password-git-deprecation",
+        "name": "sample_receipt.txt",
         "text": """
 SUNSHINE CAFE
 123 Main Street, Downtown

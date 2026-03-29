@@ -1,25 +1,23 @@
-# Core (Lightweight for Vercel)
-# Local ML removed for Vercel compatibility (500MB limit).
-# Extraction will use Regex + Groq LLM fallback.
-
-# API
+# API & Server
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
+python-dotenv>=1.0.0
 
-uvicorn[standard]>=0.29.0
-python-multipart>=0.0.9
+# Machine Learning (Core for NER)
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.38.0
+accelerate>=0.27.0
+safetensors>=0.4.0
 
-# DB
+# Database & Utilities
 pymongo[srv]>=4.6.0
-
-# Utilities
 Pillow>=10.0.0
 numpy>=1.24.0
 requests>=2.31.0
-
 pytesseract>=0.3.10
 tqdm>=4.65.0
+groq>=0.5.0
 
 # Testing
 pytest>=8.0.0
