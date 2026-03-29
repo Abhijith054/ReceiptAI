@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Hugging Face requires running as a non-root user with UID 1000
+RUN useradd -m -u 1000 user
+
 # Set local workdir
 WORKDIR /app
 
@@ -15,11 +18,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project code
-COPY . .
+# Copy all project code with correct permissions
+COPY --chown=user:user . /app
 
-# Render defaults to port 10000 but we'll use 8000
-EXPOSE 10000
+# Switch to the non-root user
+USER user
 
-# Run the FastAPI app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Hugging Face requires exposing port 7860
+EXPOSE 7860
+
+# Run the FastAPI app on port 7860
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
