@@ -55,11 +55,7 @@ class ReceiptExtractor:
                 if "token_type_ids" in self._tokenizer.model_input_names:
                     self._tokenizer.model_input_names.remove("token_type_ids")
 
-            self._model = AutoModelForTokenClassification.from_pretrained(
-                self.model_dir, 
-                low_cpu_mem_usage=True,
-                # use_safetensors=True is default if available
-            )
+            self._model = AutoModelForTokenClassification.from_pretrained(self.model_dir)
             self._pipeline = pipeline(
                 "token-classification",
                 model=self._model,
@@ -71,6 +67,45 @@ class ReceiptExtractor:
 
         except Exception as e:
             print(f"[Extractor] Load failed: {e}")
+
+    def _extract_with_groq(self, text: str) -> Optional[Dict]:
+        """Use High-Performance Groq LLM (Llama-3) for extraction if local model fails."""
+        api_key = os.environ.get("GROQ_API_KEY", "").strip()
+        if not api_key or "YOUR_GROQ" in api_key.upper():
+            return None
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            
+            prompt = f"""Extract the following fields from this receipt OCR text in JSON format:
+- vendor_name (Name of the store/restaurant)
+- date (Date of transaction in any clear format)
+- total_amount (Total amount paid, including decimal/cents)
+- receipt_id (The receipt or invoice number if present)
+
+Rules:
+1. Return ONLY JSON.
+2. If a field is not found, set it to null.
+3. Be precise with the 'total_amount'.
+
+OCR Text:
+{text[:2000]}
+
+JSON Output:"""
+
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            raw = response.choices[0].message.content
+            return json.loads(raw)
+        except Exception as e:
+            print(f"[Extractor] Groq extraction failed: {e}")
+            return None
 
     @staticmethod
     def _clean_ner_val(text: str) -> str:
@@ -106,7 +141,7 @@ class ReceiptExtractor:
         if not text:
             return {"total_amount": None, "date": None, "vendor_name": None, "receipt_id": None, "method": "empty"}
 
-        # Phase 1: Use your Trained Model
+        # Phase 1: Use your Trained Model (BERT)
         res = {}
         method = "regex"
         
@@ -118,10 +153,21 @@ class ReceiptExtractor:
             except Exception:
                 pass
 
-        # Phase 2: Precision verification with internal patterns
+        # Phase 2: High-Intelligence Fallback (Groq LLM)
+        # Triggered if BERT is missing or if key fields (total/vendor) are empty
+        if not res.get("total_amount") or not res.get("vendor_name"):
+            groq_res = self._extract_with_groq(text)
+            if groq_res:
+                # Merge: take what we don't have
+                for k, v in groq_res.items():
+                    if v and not res.get(k):
+                        res[k] = v
+                method = "Groq High-Intelligence AI"
+
+        # Phase 3: Precision verification with internal patterns (Regex)
         fallback = regex_extract(text)
         
-        # Merge results: favor model for entities, regex for math-heavy fields
+        # Final Merge
         final = {
             "vendor_name": res.get("vendor_name") or fallback.get("vendor_name"),
             "date": res.get("date") or fallback.get("date"),
