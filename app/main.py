@@ -533,8 +533,14 @@ if FRONTEND_DIR.exists():
     # Mount specific static path
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
     
-    # Catch-all for the frontend app (MUST BE LAST)
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    from fastapi.responses import FileResponse
+    
+    @app.get("/{filename}")
+    async def serve_root_files(filename: str):
+        file_path = FRONTEND_DIR / filename
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        raise HTTPException(status_code=404)
 
 
 if __name__ == "__main__":
