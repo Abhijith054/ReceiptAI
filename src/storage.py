@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -137,21 +138,39 @@ class MongoStorage:
         self.collection = self.db["records"]
         print("[Storage] MongoDB Atlas connected.")
 
-    def save_record(self, doc_id: str, data: Dict, session_id: Optional[str] = None):
+    def save_record(
+        self,
+        extracted: Dict,
+        doc_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Dict:
+        if doc_id is None:
+            doc_id = str(uuid.uuid4())[:8].upper()
+            
         record = {
             "doc_id": doc_id,
-            "session_id": session_id,
+            "session_id": session_id or "default_session",
+            "filename": filename or f"receipt_{doc_id}",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "extracted": data,
+            "extracted": {
+                "total_amount": extracted.get("total_amount"),
+                "date": extracted.get("date"),
+                "vendor_name": extracted.get("vendor_name"),
+                "receipt_id": extracted.get("receipt_id"),
+            },
+            "raw_text": extracted.get("raw_text", ""),
+            "method": extracted.get("method", "mongo"),
         }
         self.collection.update_one({"doc_id": doc_id}, {"$set": record}, upsert=True)
+        return record
 
     def get_record(self, doc_id: str) -> Optional[Dict]:
         return self.collection.find_one({"doc_id": doc_id}, {"_id": 0})
 
-    def get_all_records(self, session_id: Optional[str] = None) -> List[Dict]:
+    def list_all(self, limit: int = 100, session_id: Optional[str] = None) -> List[Dict]:
         query = {"session_id": session_id} if session_id else {}
-        return list(self.collection.find(query, {"_id": 0}).sort("timestamp", -1))
+        return list(self.collection.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit))
 
     def delete_record(self, doc_id: str) -> bool:
         res = self.collection.delete_one({"doc_id": doc_id})
@@ -167,10 +186,6 @@ class MongoStorage:
                 {"doc_id": query_re}
             ]
         }, {"_id": 0}))
-
-
-# Singleton
-_storage_instance: Optional[RecordStorage] = None
 
 
 # Singleton
