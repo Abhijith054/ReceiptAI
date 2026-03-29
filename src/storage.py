@@ -144,7 +144,11 @@ class SQLAlchemyStorage:
             # Handle Prisma/SQLite local file URLs
             url = url.replace("file:", "sqlite:///", 1)
             
-        self.engine = create_engine(url, pool_pre_ping=True)
+        self.engine = create_engine(
+            url, 
+            pool_pre_ping=True,
+            connect_args={"sslmode": "require", "connect_timeout": 5}
+        )
         self.Session = sessionmaker(bind=self.engine)
         self._init_db()
         print(f"[Storage] SQL Database connected.")
