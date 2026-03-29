@@ -1,28 +1,23 @@
-"""
-Receipt Intelligence Engine: 
-1. Extraction: Uses your FINE-TUNED DistilBERT model (trained on CORD).
-2. Chat: Uses LLM (Groq) for high-reasoning natural language queries.
-"""
-
-import json
 import os
 import re
+import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+# Local imports
+from src import data_processor
 from src.data_processor import (
-    LABEL_LIST, LABEL2ID, ID2LABEL,
-    regex_extract,
+    clean_text,
+    rule_based_extract
 )
 
-MODEL_DIR = "models/receipt_ner"
-
+MODEL_DIR = "models/receipt-bert-v1"
 
 class ReceiptExtractor:
     """
     Hybrid Intelligent Extractor.
     - Uses local fine-tuned BERT for initial data retrieval.
-    - Uses Llama-3 (Groq) for advanced chat reasoning.
+    - Uses Llama-3 (Groq) for advanced zero-shot refinement if needed.
     """
 
     def __init__(self, model_dir: str = MODEL_DIR):
@@ -34,210 +29,172 @@ class ReceiptExtractor:
         
         # Check if we should skip to avoid OOM
         self.skip_local = os.environ.get("SKIP_LOCAL_MODEL", "0") == "1"
+        self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
+        self.use_groq = bool(self.groq_api_key and "YOUR_GROQ" not in self.groq_api_key.upper())
+        
+        if self.use_groq:
+            print("[Extractor] Intelligence Mode: HYBRID (Groq Enabled)")
+        else:
+            print("[Extractor] Intelligence Mode: LOCAL (BERT/Regex Mode)")
 
     def _try_load_model(self):
         """Load your fine-tuned DistilBERT model. Lazy-called if needed."""
         if self._model_loaded: return
-        if self.skip_local:
-            print("[Extractor] SKIP_LOCAL_MODEL=1 detected. Using Regex/AI fallback flow.")
-            return
+        if self.skip_local: return
 
         try:
-            from transformers import (
-                AutoTokenizer,
-                AutoModelForTokenClassification,
-                pipeline,
-            )
+            from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 
             model_path = Path(self.model_dir)
             if not model_path.exists() or not (model_path / "config.json").exists():
-                print(f"[Extractor] Warning: Fine-tuned model not found at {self.model_dir}.")
+                print(f"[Extractor] Model directory {model_path} missing. Falling back to rules.")
                 return
 
-            print(f"[Extractor] Initializing Fine-tuned NER model (Memory-intensive)…")
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
-            
-            # Hotfix: Ensure token_type_ids are not enabled for DistilBERT
-            if self._tokenizer and hasattr(self._tokenizer, "model_input_names"):
-                if "token_type_ids" in self._tokenizer.model_input_names:
-                    self._tokenizer.model_input_names.remove("token_type_ids")
-
-            # Load with minimal settings to save memory
-            self._model = AutoModelForTokenClassification.from_pretrained(
-                self.model_dir,
-                low_cpu_mem_usage=True
-            )
-            
+            self._model = AutoModelForTokenClassification.from_pretrained(self.model_dir)
             self._pipeline = pipeline(
-                "token-classification",
-                model=self._model,
-                tokenizer=self._tokenizer,
-                aggregation_strategy="simple",
+                "ner", 
+                model=self._model, 
+                tokenizer=self._tokenizer, 
+                aggregation_strategy="simple"
             )
             self._model_loaded = True
-            print("[Extractor] Trained Model System: ONLINE ✓")
-
+            print(f"[Extractor] BERT Model System: ONLINE ✓")
         except Exception as e:
-            print(f"[Extractor] Load failed (likely OOM or missing dependencies): {e}")
-            self.skip_local = True
+            print(f"[Extractor] Error loading local model: {e}")
 
     def _extract_with_groq(self, text: str) -> Optional[Dict]:
-        """Use High-Performance Groq LLM (Llama-3) for extraction if local model fails."""
-        api_key = os.environ.get("GROQ_API_KEY", "").strip()
-        if not api_key or "YOUR_GROQ" in api_key.upper():
-            return None
+        """Use High-Performance Groq LLM (Llama-3) for extraction fallback (Rule 5)."""
+        if not self.use_groq: return None
 
         try:
             from groq import Groq
-            client = Groq(api_key=api_key)
+            client = Groq(api_key=self.groq_api_key)
             
-            prompt = f"""Extract structured data from this receipt OCR text.
-Return ONLY a JSON object with these EXACT keys:
-{{
-  "vendor": "Store name string (clean and title case)",
-  "date": "YYYY-MM-DD or null if not found",
-  "total_amount": numerical_value (float/int)
-}}
-
-Rules:
-1. No currency symbols.
-2. If total is not found, return 0.
-3. Output MUST be valid JSON.
-
-OCR Text:
-{text[:2000]}
-
-JSON Output:"""
+            # Specific Prompt (Rule 5)
+            prompt = f"""
+            Extract vendor name and date from this receipt.
+            Return JSON:
+            {{
+              "vendor": "string",
+              "date": "YYYY-MM-DD or null"
+            }}
+            
+            OCR Text:
+            ---
+            {text[:2500]}
+            ---
+            """
 
             response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
                 temperature=0.0,
-                response_format={"type": "json_object"}
+                # response_format={"type": "json_object"}
             )
             raw = response.choices[0].message.content
+            # Clean potential markdown wrap
+            if "```json" in raw:
+                raw = raw.split("```json")[1].split("```")[0].strip()
             return json.loads(raw)
         except Exception as e:
-            print(f"[Extractor] Groq extraction failed: {e}")
+            print(f"[Extractor] Groq Fallback Failed: {e}")
             return None
 
-    @staticmethod
-    def _clean_ner_val(text: str) -> str:
-        """Sanitize word-piece remnants and artifacts from BERT spans."""
-        return text.replace(" ##", "").strip()
-
-    def _format_ner_results(self, ner_results: List[Dict]) -> Dict:
-        """Convert BERT spans into structured receipt fields."""
-        fields = {"total_amount": None, "date": None, "vendor_name": None, "receipt_id": None}
+    def extract(self, ocr_text: str) -> Dict[str, Any]:
+        """Hybrid extraction entry point with robust validation (Rule 6)."""
+        text = clean_text(ocr_text)
+        print(f"[DEBUG] Raw OCR (Normalized):\n{text[:500]}...") # Rule 8
         
-        for span in ner_results:
-            group = span.get("entity_group", "").upper()
-            word = self._clean_ner_val(span.get("word", ""))
-            
-            if not word: continue
-            
-            if "TOTAL" in group:
-                fields["total_amount"] = word
-            elif "DATE" in group:
-                fields["date"] = word
-            elif "VENDOR" in group:
-                fields["vendor_name"] = word
-            elif "ID" in group:
-                fields["receipt_id"] = word
-        return fields
+        res: Dict[str, Any] = {"vendor": "", "date": "", "total_amount": 0.0, "raw_text": text}
+        method = "Heuristic (Regex/Rules)"
 
-    def extract(self, text: str) -> Dict:
-        """
-        Final Production Extraction Pipeline:
-        1. Normalization
-        2. Local Model (Primary if loaded)
-        3. Smart Regex (Secondary)
-        4. Groq LLM (High-Confidence Fallback)
-        5. Validation & Strict Formatting
-        """
-        # Trigger lazy load
+        # 1. Primary: Fine-tuned DistilBERT (NER)
         self._try_load_model()
-        
-        from src.data_processor import normalize_ocr, regex_extract
-        
-        # 0. Normalize & Log
-        clean_text = normalize_ocr(text)
-        print(f"[Extractor] Starting extraction for OCR length: {len(text)}")
-        
-        # Initialize result with defaults
-        res = {"vendor": None, "date": None, "total_amount": None}
-        method = "regex"
-
-        # 1. Local Model Attempt (BERT)
         if self._model_loaded:
             try:
-                ner_out = self._pipeline(text[:1024])
-                bert_res = self._format_ner_results(ner_out)
-                # Map old keys to new keys
-                res["vendor"] = bert_res.get("vendor_name")
-                res["date"] = bert_res.get("date")
-                res["total_amount"] = bert_res.get("total_amount")
-                method = "Trained DistilBERT (NER)"
-            except Exception as e:
-                print(f"[Extractor] BERT failed: {e}")
+                ner_results = self._pipeline(text)
+                format_res = self._format_ner_results(ner_results)
+                if format_res.get("vendor"): res["vendor"] = format_res["vendor"]
+                if format_res.get("date"): res["date"] = format_res["date"]
+                if format_res.get("total_amount"): res["total_amount"] = format_res["total_amount"]
+                method = "Model (BERT)"
+            except: pass
 
-        # 2. Smart Regex Attempt
-        reg_res = regex_extract(text)
-        # Fill gaps from regex
-        if not res["vendor"]: res["vendor"] = reg_res.get("vendor")
-        if not res["date"]: res["date"] = reg_res.get("date")
-        if not res["total_amount"]: res["total_amount"] = reg_res.get("total_amount")
+        # 2. Rule-based Extraction (Fallback)
+        reg_res = rule_based_extract(text)
+        print(f"[DEBUG] Heuristic Candidates - Vendor: '{reg_res.get('vendor')}', Date: '{reg_res.get('date')}'") # Rule 8
+        
+        # Merge if models got junk
+        if not res.get("vendor") or self._is_invalid_vendor(res["vendor"]):
+            if reg_res.get("vendor"): res["vendor"] = reg_res["vendor"]
+            
+        if not res.get("date") or self._is_invalid_date(res["date"]):
+            if reg_res.get("date"): res["date"] = reg_res["date"]
 
-        # 3. Validation Layer
-        def is_valid(data):
-            try:
-                total = float(data.get("total_amount") or 0)
-                return total > 0 and data.get("vendor") and data.get("date")
-            except: return False
+        # Always prefer the larger total: rule-based regex is more reliable for
+        # currency amounts than BERT, which can pick up wrong small numbers.
+        rule_total = reg_res.get("total_amount") or 0.0
+        bert_total = res.get("total_amount") or 0.0
+        if rule_total > bert_total:
+            res["total_amount"] = rule_total
+            print(f"[Extractor] Rule-based total ({rule_total}) overrides BERT total ({bert_total})")
 
-        # 4. LLM Fallback (Groq) - Triggered if data is invalid or missing
-        if not is_valid(res):
-            print("[Extractor] Confidence low. Falling back to Groq AI…")
+        # 3. Validation Layer & LLM Fallback (Rule 5 & 6)
+        is_invalid_v = self._is_invalid_vendor(res.get("vendor"))
+        is_invalid_d = self._is_invalid_date(res.get("date"))
+        
+        if self.use_groq and (is_invalid_v or is_invalid_d):
+            print(f"[Extractor] Validation failed (V:{is_invalid_v}, D:{is_invalid_d}). Triggering LLM Fallback...")
             groq_res = self._extract_with_groq(text)
             if groq_res:
-                # Prioritize Groq's high-intelligence results
-                res["vendor"] = groq_res.get("vendor_name") or groq_res.get("vendor")
-                res["date"] = groq_res.get("date")
-                res["total_amount"] = groq_res.get("total_amount")
-                method = "Groq High-Intelligence AI"
+                if is_invalid_v and groq_res.get("vendor"):
+                    res["vendor"] = groq_res["vendor"]
+                if is_invalid_d and groq_res.get("date"):
+                    res["date"] = groq_res["date"]
+                method += " + AI Healing"
 
-        # 5. Final Sanitization
-        try:
-            # Ensure total_amount is a number (number type in JSON)
-            if res["total_amount"]:
-                # strip non-numeric or currency symbols if any left
-                if isinstance(res["total_amount"], str):
-                    s = re.sub(r'[^\d.]', '', res["total_amount"])
-                    res["total_amount"] = float(s) if s else 0.0
-                else:
-                    res["total_amount"] = float(res["total_amount"])
-            else:
-                res["total_amount"] = 0.0
-        except:
-            res["total_amount"] = 0.0
+        res["method"] = method
+        return res
 
-        print(f"[Extractor] Final Result: {res} | Method: {method}")
-        
-        return {
-            "vendor": res["vendor"] or "Unknown Store",
-            "date": res["date"], # LLM or regex will return YYYY-MM-DD or None
-            "total_amount": res["total_amount"],
-            "raw_text": text,
-            "method": method
-        }
+    def _is_invalid_vendor(self, vendor: Any) -> bool:
+        """Rule 6: Must be > 3 chars and not all numeric."""
+        v = str(vendor or "").strip()
+        if len(v) <= 3: return True
+        if v.isdigit(): return True
+        return False
 
+    def _is_invalid_date(self, date: Any) -> bool:
+        """Rule 6: Must be complete format (> 8 chars, with separators)."""
+        d = str(date or "").strip()
+        if not d or d.lower() == "null": return True
+        if len(d) < 8: return True
+        if not any(c in d for c in ['-', '/', '.']): return True
+        return False
 
-# Singleton
-_extractor_instance: Optional[ReceiptExtractor] = None
+    def _format_ner_results(self, ner_results: List[Dict]) -> Dict:
+        """Helper to parse BERT spans."""
+        res = {"total_amount": 0.0, "vendor": "", "date": ""}
+        for span in ner_results:
+            group = span.get("entity_group", "").upper()
+            word = span.get("word", "").replace(" ##", "").strip()
+            if "TOTAL" in group:
+                try:
+                    val = data_processor.parse_amount(word)
+                    if val and val > res["total_amount"]: res["total_amount"] = val
+                except: pass
+            elif "ORG" in group or "VENDOR" in group:
+                if not res["vendor"]: res["vendor"] = word
+            elif "DATE" in group:
+                if not res["date"]: res["date"] = word
+        return res
+
+# Global Singleton
+_extractor_instance = None
 
 def get_extractor() -> ReceiptExtractor:
     global _extractor_instance
     if _extractor_instance is None:
         _extractor_instance = ReceiptExtractor()
+    return _extractor_instance
     return _extractor_instance

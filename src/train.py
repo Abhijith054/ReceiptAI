@@ -1,5 +1,5 @@
 """
-Fine-tune DistilBERT for token classification (NER) on CORD receipt data.
+Fine-tune DistilBERT token classification (NER) on CORD receipt data.
 Trains on a lightweight subset; saves best checkpoint to models/receipt_ner/.
 Prints precision / recall / F1 using seqeval.
 """
@@ -28,7 +28,7 @@ from src.data_processor import (
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 BASE_MODEL = "distilbert-base-uncased"
-OUTPUT_DIR = "models/receipt_ner"
+OUTPUT_DIR = "models/receipt-bert-v1"
 DATA_DIR = "data"
 MAX_LENGTH = 128
 

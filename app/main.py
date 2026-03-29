@@ -16,9 +16,16 @@ import os
 import sys
 import json
 import uuid
+import hashlib
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
+import jwt
 
 # Load .env file
 load_dotenv()
@@ -64,11 +71,27 @@ from src.extractor import get_extractor
 from src.storage import get_storage
 from src.qa_engine import get_qa_engine
 
+# Auth Configuration
+JWT_SECRET = os.environ.get("JWT_SECRET", "receipt-ai-default-secret-54321")
+JWT_ALGORITHM = "HS256"
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
+GMAIL_USER = os.environ.get("GMAIL_USER")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+
 app = FastAPI(
     title="Receipt IE & QA System",
     description="Extract key fields from receipts and answer natural language questions.",
     version="1.0.0",
 )
+
+# Pydantic Models for Auth
+class EmailRequest(BaseModel):
+    email: str
+
+class VerifyRequest(BaseModel):
+    email: str
+    otp: str
 
 # Allow all origins for development (tighten in production)
 app.add_middleware(
@@ -110,6 +133,7 @@ except Exception as e:
 class QueryRequest(BaseModel):
     question: str
     doc_id: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None # For Conversational Memory
 
 
 class TextExtractRequest(BaseModel):
@@ -135,18 +159,130 @@ async def serve_ui():
 
 @app.get("/health", tags=["System"])
 async def health():
-    """Health check endpoint."""
-    extractor = get_extractor()
+    """Check system status."""
     return {
-        "status": "ok",
-        "model_loaded": extractor._model_loaded,
-        "extraction_method": "model" if extractor._model_loaded else "regex",
+        "status": "online",
+        "engine": "ReceiptAI Intelligence v1.0",
         "qa_mode": "llm" if get_qa_engine().use_llm else "rule-based",
     }
 
+# ── Auth Endpoints ──────────────────────────────────────────────────────────
 
+@app.post("/send-otp", tags=["Auth"])
+async def send_otp(req: EmailRequest):
+    storage = get_storage()
+    email = req.email.lower().strip()
+    
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
 
-    # ...
+    otp = f"{random.randint(100000, 999999)}"
+    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    
+    storage.save_otp(email, otp_hash, expires_at)
+    
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        print(f"[AUTH] NO CREDENTIALS. OTP FOR {email}: {otp}")
+        return {"message": "OTP sent (dev mode)", "dev": True, "otp": otp}
+
+    try:
+        # SMTP email sending
+        msg = MIMEMultipart("alternative")
+        msg['Subject'] = 'ReceiptAI Verification Code'
+        msg['From'] = GMAIL_USER
+        msg['To'] = email
+
+        text_version = f"Your ReceiptAI verification code is: {otp}\nExpires in 5 minutes."
+        html_version = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #000000; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #000000; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 500px; background-color: #121212; border-radius: 24px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
+                    <!-- Header -->
+                    <tr>
+                        <td align="center" style="padding: 40px 40px 20px 40px; background: linear-gradient(180deg, #1a1a1a 0%, #121212 100%);">
+                            <h1 style="margin: 0; font-size: 24px; font-weight: 900; color: #ffffff; letter-spacing: -0.02em;">Receipt<span style="color: #6366f1;">AI</span></h1>
+                            <p style="margin: 8px 0 0 0; font-size: 10px; font-weight: 800; color: #4b5563; text-transform: uppercase; letter-spacing: 0.2em;">Email Verification</p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Main Body -->
+                    <tr>
+                        <td align="center" style="padding: 20px 40px 40px 40px;">
+                            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: -0.01em;">Verification OPT</h2>
+                            <p style="margin: 12px 0 32px 0; font-size: 13px; line-height: 1.6; color: #9ca3af;">Use the verification code below to complete your login.</p>
+                            
+                            <!-- OTP Box -->
+                            <div style="background-color: #1e1e1e; border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.05); text-align: center;">
+                                <div style="font-size: 36px; font-weight: 900; color: #ffffff; letter-spacing: 0.5em; margin-right: -0.5em;">{otp}</div>
+                            </div>
+                            
+                            <p style="margin: 32px 0 0 0; font-size: 11px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em;">This code will expire in <span style="color: #ef4444;">5 minutes</span></p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td align="center" style="padding: 0 40px 40px 40px; border-top: 1px solid rgba(255,255,255,0.03);">
+                            <p style="margin: 24px 0 0 0; font-size: 11px; line-height: 1.5; color: #374151;">If you didn't request this code, you can safely ignore this email.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+"""
+        msg.attach(MIMEText(text_version, "plain"))
+        msg.attach(MIMEText(html_version, "html"))
+        
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+            
+        return {"message": "OTP sent successfully"}
+    except Exception as e:
+        print(f"[AUTH] SMTP Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+@app.post("/verify-otp", tags=["Auth"])
+async def verify_otp(req: VerifyRequest):
+    storage = get_storage()
+    email = req.email.lower().strip()
+    otp = req.otp.strip()
+    
+    record = storage.get_otp(email)
+    if not record:
+        raise HTTPException(status_code=404, detail="No OTP requested for this email")
+        
+    if record["attempts"] >= 3:
+        raise HTTPException(status_code=403, detail="Too many attempts. Request new OTP.")
+        
+    if datetime.now(timezone.utc) > record["expires_at"]:
+        raise HTTPException(status_code=400, detail="OTP expired")
+        
+    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
+    if record["otp_hash"] != otp_hash:
+        storage.increment_otp_attempts(email)
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+        
+    access_token = jwt.encode(
+        {"sub": email, "exp": datetime.now(timezone.utc) + timedelta(days=7)},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM
+    )
+    
+    return {"access_token": access_token, "email": email}
 
 
 
@@ -256,15 +392,8 @@ async def extract_from_upload(
     # ── Persist ──
     record = storage.save_record(extracted, doc_id=doc_id, filename=filename, session_id=session_id)
     
-    return {
-        "doc_id": record["doc_id"],
-        "filename": record["filename"],
-        "has_image": True if file is not None else False,
-        "timestamp": record["timestamp"],
-        "extracted": record["extracted"], # Return full extracted keys including image_data/url
-        "method": record["method"],
-        "message": "Extraction successful. High-confidence AI logic applied.",
-    }
+    # Return the full record for consistency and to ensure image_data is top-level for JS
+    return record
 
 
 @app.post("/extract/text", tags=["Extraction"])
@@ -304,7 +433,7 @@ async def query(body: QueryRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     qa = get_qa_engine()
-    result = qa.answer(body.question, doc_id=body.doc_id)
+    result = qa.answer(body.question, doc_id=body.doc_id, history=body.history)
     return result
 
 

@@ -1,83 +1,23 @@
 import json
 import os
 import re
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+# Local imports
 from src.storage import get_storage, RecordStorage
 
-# ─── LLM-based QA (Groq) ────────────────────────────────────────────────────
-
-def groq_answer(question: str, records: List[Dict], api_key: str) -> str:
-    """Use Groq LLM to answer the question, grounded in extracted data."""
-    try:
-        from groq import Groq
-        
-        # Format the context from multiple records
-        context_parts = []
-        for r in records:
-            ex = r.get("extracted", {})
-            context_parts.append(
-                f"Document ID: {r['doc_id']}\n"
-                f"Vendor: {ex.get('vendor', 'Unknown')}\n"
-                f"Date: {ex.get('date', 'Unknown')}\n"
-                f"Total Amount: {ex.get('total_amount', 'Unknown')}\n"
-                f"Filename: {r.get('filename', 'Unknown')}\n"
-            )
-        
-        context = "\n---\n".join(context_parts)
-        
-        prompt = f"""You are a high-performance ReceiptAI assistant.
-Your task is to answer natural language questions based ONLY on the receipt data provided below.
-
-Available Data:
-{context}
-
-Guidelines:
-1. If the user asks for a specific vendor or date, focus ONLY on those records.
-2. If the user asks for a sum (e.g. "Total spent"), calculate it accurately from the available data.
-3. If the data is missing, state it clearly.
-4. Keep your answer professional, concise, and helpful.
-
-Question: {question}
-Answer:"""
-
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0.1,
-        )
-        return response.choices[0].message.content.strip()
-
-    except Exception as e:
-        return f"[System Error: {e}] I encountered an issue analyzing the database. Please check your API key."
-
-# ─── Rule-based Fallback ───────────────────────────────────────────────────
-
-def rule_based_answer(question: str, record: Dict) -> str:
-    """Fallback answer using simple pattern matching if no LLM key is set."""
-    ex = record.get("extracted", {})
-    q = question.lower()
-    
-    if "total" in q or "much" in q:
-        val = ex.get("total_amount")
-        return f"The total amount on this receipt is **{val}**." if val else "Total amount not found."
-    elif "date" in q:
-        val = ex.get("date")
-        return f"This receipt is dated **{val}**." if val else "Date not found."
-    elif "vendor" in q or "where" in q:
-        val = ex.get("vendor")
-        return f"The vendor is **{val}**." if val else "Vendor not found."
-    
-    return "I found this receipt but I'm not sure what you're asking. Try asking about the 'total', 'date', or 'vendor'."
-
-
-# ─── Main QA Engine ──────────────────────────────────────────────────────────
-
 class QAEngine:
+    """
+    Intelligent Answer Engine with support for:
+    - RAG (Retrieval-Augmented Generation) based on extracted receipt data.
+    - Conversational Memory (via history).
+    - Rule-based fallback if LLM is unavailable.
+    """
+
     def __init__(self, storage: Optional[RecordStorage] = None):
         self.storage = storage or get_storage()
+        
+        # Check for High-Intelligence Mode (Groq)
         self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
         self.use_llm = bool(self.groq_api_key and "YOUR_GROQ" not in self.groq_api_key.upper())
         
@@ -86,64 +26,87 @@ class QAEngine:
         else:
             print("[QA] Intelligence Engine: FALLBACK (Using Rule-based matches)")
 
-    def answer(self, question: str, doc_id: Optional[str] = None) -> Dict:
+    def answer(self, question: str, doc_id: Optional[str] = None, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
-        Smart Answer Engine with RAG (Retrieval-Augmented Generation).
+        Main entry point for answering questions.
+        If history is provided, the AI will use it for multi-turn context.
         """
-        # Phase 1: Context Retrieval
-        records_to_query = []
+        # Always fetch 10 most recent for global context awareness
+        all_recent = self.storage.list_all(limit=10)
+        focused_record = self.storage.get_record(doc_id) if doc_id else None
         
-        if doc_id:
-            # Single doc focus (User click)
-            record = self.storage.get_record(doc_id)
-            if record:
-                records_to_query = [record]
-        else:
-            # Global search (Smart RAG)
-            # Try to find relevant docs by searching for words in the question
-            # (e.g. if question contains "Walmart", find Walmart receipts)
-            keywords = [w.strip() for w in question.split() if len(w) > 3]
-            search_results = []
-            for kw in keywords:
-                search_results.extend(self.storage.search(kw))
-            
-            # De-duplicate results
-            seen_ids = set()
-            for r in search_results:
-                if r["doc_id"] not in seen_ids:
-                    records_to_query.append(r)
-                    seen_ids.add(r["doc_id"])
-            
-            # If no matches found via keyword, default to last 10 receipts
-            if not records_to_query:
-                records_to_query = self.storage.list_all(limit=10)
+        # If no specific doc focused, we just use the global list
+        other_records = [r for r in all_recent if r['doc_id'] != doc_id] if focused_record else all_recent
 
-        # Phase 2: Generating the Answer
-        if not records_to_query:
-            return {
-                "answer": "I couldn't find any documents to analyze. Please upload a receipt first!",
-                "sources": []
-            }
+        # Generate the context string for the prompt
+        context_parts = []
+        if focused_record:
+            ex = focused_record.get("extracted", {})
+            context_parts.append(f"TARGET DOC (ID {doc_id}): {focused_record.get('filename')}\nData: {json.dumps(ex)}")
+        
+        summaries = []
+        for r in other_records[:5]:
+            ex = r.get("extracted", {})
+            summaries.append(f"- {r.get('filename')}: Vendor={ex.get('vendor')}, Total={ex.get('total_amount')}")
+        if summaries:
+            context_parts.append("OTHER RECENT BILLS:\n" + "\n".join(summaries))
+        
+        context_str = "\n---\n".join(context_parts)
 
+        # Intelligence Handover
         if self.use_llm:
-            answer = groq_answer(question, records_to_query, self.groq_api_key)
+            try:
+                from groq import Groq
+                client = Groq(api_key=self.groq_api_key)
+                
+                system_prompt = f"""You are an intelligent ReceiptAI assistant.
+
+GENERAL INSTRUCTIONS:
+- If the user greets you, respond politely.
+- Otherwise, answer the user’s question strictly using the provided document data.
+
+DATA:
+{context_str}
+
+STRICT RULES:
+- If asked about "all" documents, summarize totals or vendors from the entire DATA.
+- Otherwise, focus on the TARGET DOC.
+- If the answer is genuinely missing from the data, say 'Not available'.
+- Return a short, direct answer in natural language. Do NOT output raw JSON."""
+
+                messages = [{"role": "system", "content": system_prompt}]
+                if history:
+                    messages.extend(history[-5:] if len(history) > 5 else history)
+                messages.append({"role": "user", "content": question})
+
+                resp = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=300
+                )
+                answer_text = resp.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"[QA] Groq Intelligence Error: {e}")
+                answer_text = "I encountered an issue analyzing the database. Falling back to local search..."
         else:
-            # Rule based only supports single doc logic currently
-            answer = rule_based_answer(question, records_to_query[0])
-            if len(records_to_query) > 1:
-                answer += f"\n\n(I analyzed document '{records_to_query[0].get('filename')}' out of {len(records_to_query)} available.)"
+            # Rule based fallback (if no Groq)
+            target = focused_record or (all_recent[0] if all_recent else None)
+            if target:
+                answer_text = f"I analyzed '{target.get('filename')}' and found it is from {target.get('extracted', {}).get('vendor')} for a total amount of {target.get('extracted', {}).get('total_amount')}."
+            else:
+                answer_text = "No records found in my database yet. Please upload a receipt!"
 
         return {
-            "answer": answer,
-            "sources": [r.get("filename", r["doc_id"]) for r in records_to_query[:5]]
+            "answer": answer_text,
+            "sources": [focused_record.get('filename')] if focused_record else [r.get('filename') for r in all_recent[:2]]
         }
 
-
-# Singleton Pattern
-_qa_engine: Optional[QAEngine] = None
+# Global Singleton
+_qa_instance = None
 
 def get_qa_engine() -> QAEngine:
-    global _qa_engine
-    if _qa_engine is None:
-        _qa_engine = QAEngine()
-    return _qa_engine
+    global _qa_instance
+    if _qa_instance is None:
+        _qa_instance = QAEngine()
+    return _qa_instance

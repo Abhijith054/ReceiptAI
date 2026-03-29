@@ -6,10 +6,12 @@
 // Use window.location.origin to handle both localhost and production (Vercel) automatically
 const API = window.location.origin;
 
-// ── State ─────────────────────────────────────────────────────────────────────
-let sessionId = localStorage.getItem("receipt_ia_sid") || uuidv4();
-localStorage.setItem("receipt_ia_sid", sessionId);
+// ── Auth State ────────────────────────────────────────────────────────────────
+let authToken = localStorage.getItem("receipt_ia_token");
+let userEmail = localStorage.getItem("receipt_ia_email");
 
+// ── State ─────────────────────────────────────────────────────────────────────
+let sessionId = userEmail || "guest";
 let selectedDocId = null;
 let documents = [];
 
@@ -42,6 +44,20 @@ const fieldDate = document.getElementById("field-date");
 const fieldTotal = document.getElementById("field-total");
 const reExtractBtn = document.getElementById("re-extract-btn");
 const viewJsonHeader = document.getElementById("view-json-header");
+const headerUploadBtn = document.getElementById("header-upload-btn");
+
+// ── DOM Refs (Auth) ──────────────────────────────────────────────────────────
+const loginOverlay = document.getElementById("login-overlay");
+const loginEmailView = document.getElementById("login-email-view");
+const loginOtpView = document.getElementById("login-otp-view");
+const loginEmailInput = document.getElementById("login-email");
+const loginOtpInput = document.getElementById("login-otp");
+const sendOtpBtn = document.getElementById("send-otp-btn");
+const verifyOtpBtn = document.getElementById("verify-otp-btn");
+const loginError = document.getElementById("login-error");
+const logoutBtn = document.getElementById("logout-btn");
+const resendOtpBtn = document.getElementById("resend-otp-btn");
+const backToEmailBtn = document.getElementById("back-to-email");
 
 // ── Interaction Logic ──────────────────────────────────────────────────────────
 chatInput.addEventListener("input", () => {
@@ -79,15 +95,15 @@ async function checkHealth() {
     try {
         const r = await fetch(`${API}/health`);
         if (r.ok) {
-            if(statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
-            if(apiStatusText) {
+            if (statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+            if (apiStatusText) {
                 apiStatusText.textContent = "Assistant Online";
                 apiStatusText.className = "text-[10px] font-bold text-emerald-500 uppercase tracking-widest";
             }
         } else throw new Error();
     } catch {
-        if(statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
-        if(apiStatusText) {
+        if (statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
+        if (apiStatusText) {
             apiStatusText.textContent = "Assistant Offline";
             apiStatusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
         }
@@ -100,8 +116,14 @@ function appendMessage(content, role = "assistant") {
     wrap.className = `flex ${role === 'user' ? 'justify-end' : 'items-start'} gap-4 max-w-[90%] animate-slide-in ${role === 'user' ? 'ml-auto' : ''}`;
 
     const iconHtml = role === 'assistant'
-        ? `<div class="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
-             <iconify-icon icon="solar:bot-bold" class="text-lg"></iconify-icon>
+        ? `<div class="ai-avatar-premium">
+             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                 <rect x="3" y="6" width="18" height="13" rx="4" fill="white" fill-opacity="0.1" stroke="white" stroke-width="1.5"/>
+                 <circle cx="8" cy="12" r="1.5" fill="#22c55e" class="robot-eye" style="transform-origin: 8px 12px;"></circle>
+                 <circle cx="16" cy="12" r="1.5" fill="#22c55e" class="robot-eye" style="transform-origin: 16px 12px;"></circle>
+                 <path d="M10 16H14" stroke="white" stroke-width="1" stroke-linecap="round" opacity="0.5"></path>
+                 <path d="M12 6V4M10 4H14" stroke="white" stroke-width="1.5" stroke-linecap="round"></path>
+             </svg>
            </div>`
         : `<div class="w-8 h-8 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-500 shrink-0">
              <iconify-icon icon="solar:user-bold" class="text-lg"></iconify-icon>
@@ -130,20 +152,21 @@ function appendThinking() {
 function updateExtractionPanel(record) {
     const ex = record.extracted || {};
     const imgData = record.image_data || ex.image_data || record.image_url || ex.image_url;
-    
+
     // 1. Update Preview
     if (imgData) {
+        activeImage.src = imgData;
         previewPlaceholder.classList.add("hidden");
         activeImageWrapper.classList.remove("hidden");
+        if (headerUploadBtn) headerUploadBtn.classList.remove("hidden");
         // Reset opacity for transition
         activeImage.classList.remove("opacity-100");
         activeImage.classList.add("opacity-0");
-        activeImage.src = imgData;
     } else {
         previewPlaceholder.classList.remove("hidden");
         activeImageWrapper.classList.add("hidden");
         const previewText = document.getElementById("preview-text");
-        if(previewText) previewText.textContent = "Upload a receipt to begin";
+        if (previewText) previewText.textContent = "Upload a receipt to begin";
     }
 
     // 2. Update Data Fields
@@ -185,10 +208,10 @@ async function loadDocuments() {
         const data = await r.json();
         documents = data.documents || [];
         renderDocList();
-        
+
         // Ensure consistent state on initial load
         if (documents.length > 0 && !selectedDocId) {
-            const latest = [...documents].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+            const latest = [...documents].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
             selectDocument(latest);
         }
     } catch { /* silence */ }
@@ -196,11 +219,11 @@ async function loadDocuments() {
 
 function renderDocList() {
     docList.innerHTML = "";
-    
+
     // Add "Sessions" Label if not first item
     const label = document.createElement("div");
     label.className = "px-4 pt-4 mb-2 text-[9px] font-black text-gray-700 uppercase tracking-[0.2em]";
-    label.innerText = "Active Sessions";
+    label.innerText = "View Documents";
     docList.appendChild(label);
 
     if (documents.length === 0) {
@@ -247,9 +270,10 @@ function selectDocument(record) {
     selectedDocId = record.doc_id;
     updateExtractionPanel(record);
     renderDocList();
-    
+
     chatMessages.innerHTML = "";
-    appendMessage(`Analyzing context for **${record.filename}**. You can now query specific details like totals, line items, or dates from this document.`, "assistant");
+    // Rule 6: Show conversational invite
+    appendMessage(`Document analyzed. Ask me anything about this receipt.`, "assistant");
 }
 
 async function deleteDocument(docId) {
@@ -262,8 +286,6 @@ async function deleteDocument(docId) {
                 selectedDocId = null;
                 previewPlaceholder.classList.remove("hidden");
                 activeImageWrapper.classList.add("hidden");
-                extractedFields.classList.add("hidden");
-                analysisStatus.classList.add("hidden");
                 chatMessages.innerHTML = "";
             }
             await loadDocuments();
@@ -332,8 +354,7 @@ async function sendQuestion() {
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
-const inlineUploadBtn = document.getElementById("inline-upload-btn");
-if (inlineUploadBtn) inlineUploadBtn.addEventListener("click", () => fileInput.click());
+if (headerUploadBtn) headerUploadBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", (e) => {
     if (fileInput.files[0]) doUpload(fileInput.files[0]);
     fileInput.value = "";
@@ -344,17 +365,7 @@ chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendQuestion();
 });
 
-const newChatBtn = document.getElementById("new-chat-btn");
-if (newChatBtn) newChatBtn.addEventListener("click", () => {
-    selectedDocId = null;
-    previewPlaceholder.classList.remove("hidden");
-    activeImageWrapper.classList.add("hidden");
-    extractedFields.classList.add("hidden");
-    analysisStatus.classList.add("hidden");
-    chatMessages.innerHTML = "";
-    renderDocList();
-    toast("New session started", "info");
-});
+// (new-chat-btn removed)
 
 reExtractBtn.addEventListener("click", () => {
     if (selectedDocId) {
@@ -363,19 +374,137 @@ reExtractBtn.addEventListener("click", () => {
     }
 });
 
-viewJsonHeader.addEventListener("click", () => {
-    if (selectedDocId) {
-        const doc = documents.find(d => d.doc_id === selectedDocId);
-        if (doc) {
-            const json = JSON.stringify(doc.extracted, null, 2);
-            appendMessage(`### 🤖 Raw Structured JSON\n\n\`\`\`json\n${json}\n\`\`\``, "assistant");
+// ── Auth Logic ────────────────────────────────────────────────────────────────
+async function initAuth() {
+    if (!authToken) {
+        showLogin();
+    } else {
+        hideLogin();
+        // Update user profile in sidebar
+        const emailSpan = document.getElementById("sidebar-user-email");
+        const avatarChar = document.getElementById("avatar-char");
+        if (emailSpan && userEmail) emailSpan.textContent = userEmail;
+        if (avatarChar && userEmail) avatarChar.textContent = userEmail.charAt(0).toUpperCase();
+    }
+}
+
+function showLogin() {
+    loginOverlay.classList.remove("hidden");
+    loginEmailView.classList.remove("hidden");
+    loginOtpView.classList.add("hidden");
+}
+
+function hideLogin() {
+    loginOverlay.classList.add("hidden");
+}
+
+function logout() {
+    localStorage.removeItem("receipt_ia_token");
+    localStorage.removeItem("receipt_ia_email");
+    authToken = null;
+    userEmail = null;
+    location.reload();
+}
+
+sendOtpBtn.addEventListener("click", async () => {
+    const email = loginEmailInput.value.trim();
+    if (!email || !email.includes("@")) {
+        showLoginError("Please enter a valid email");
+        return;
+    }
+
+    sendOtpBtn.disabled = true;
+    sendOtpBtn.textContent = "Sending...";
+    loginError.classList.add("hidden");
+
+    try {
+        const r = await fetch(`${API}/send-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email })
+        });
+
+        if (r.ok) {
+            userEmail = email;
+            loginEmailView.classList.add("hidden");
+            loginOtpView.classList.remove("hidden");
+            toast("Verification code sent", "success");
+        } else {
+            const data = await r.json();
+            showLoginError(data.detail || "Failed to send code");
         }
+    } catch (e) {
+        showLoginError("Network error. Try again.");
+    } finally {
+        sendOtpBtn.disabled = false;
+        sendOtpBtn.textContent = "Send Access Code";
     }
 });
 
+verifyOtpBtn.addEventListener("click", async () => {
+    const otp = loginOtpInput.value.trim();
+    if (otp.length !== 6) {
+        showLoginError("Enter 6-digit code");
+        return;
+    }
+
+    verifyOtpBtn.disabled = true;
+    verifyOtpBtn.textContent = "Verifying...";
+
+    try {
+        const r = await fetch(`${API}/verify-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: userEmail, otp })
+        });
+
+        if (r.ok) {
+            const data = await r.json();
+            authToken = data.access_token;
+            localStorage.setItem("receipt_ia_token", authToken);
+            localStorage.setItem("receipt_ia_email", userEmail);
+            hideLogin();
+            toast("Access Granted", "success");
+            location.reload();
+        } else {
+            const data = await r.json();
+            showLoginError(data.detail || "Invalid code");
+        }
+    } catch (e) {
+        showLoginError("Sync failed. Check connection.");
+    } finally {
+        verifyOtpBtn.disabled = false;
+        verifyOtpBtn.textContent = "Verify & Enter";
+    }
+});
+
+if (backToEmailBtn) {
+    backToEmailBtn.addEventListener("click", () => {
+        loginOtpView.classList.add("hidden");
+        loginEmailView.classList.remove("hidden");
+    });
+}
+
+if (resendOtpBtn) {
+    resendOtpBtn.addEventListener("click", () => sendOtpBtn.click());
+}
+
+if (logoutBtn) {
+    logoutBtn.addEventListener("click", logout);
+}
+
+function showLoginError(msg) {
+    loginError.textContent = msg;
+    loginError.classList.remove("hidden");
+    toast(msg, "error");
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
-    await checkHealth();
-    await loadDocuments();
-    setInterval(checkHealth, 15000);
+    await initAuth();
+    if (authToken) {
+        await checkHealth();
+        await loadDocuments();
+        setInterval(checkHealth, 15000);
+    }
 })();
