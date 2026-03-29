@@ -169,7 +169,7 @@ async def health():
 # ── Auth Endpoints ──────────────────────────────────────────────────────────
 
 @app.post("/send-otp", tags=["Auth"])
-async def send_otp(req: EmailRequest):
+def send_otp(req: EmailRequest):
     storage = get_storage()
     email = req.email.lower().strip()
     
@@ -277,7 +277,7 @@ async def send_otp(req: EmailRequest):
         return {"message": "OTP logged in console due to server block", "dev": True, "otp": otp}
 
 @app.post("/verify-otp", tags=["Auth"])
-async def verify_otp(req: VerifyRequest):
+def verify_otp(req: VerifyRequest):
     storage = get_storage()
     email = req.email.lower().strip()
     otp = req.otp.strip()
@@ -533,14 +533,8 @@ if FRONTEND_DIR.exists():
     # Mount specific static path
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
     
-    from fastapi.responses import FileResponse
-    
-    @app.get("/{filename}")
-    async def serve_root_files(filename: str):
-        file_path = FRONTEND_DIR / filename
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
-        raise HTTPException(status_code=404)
+    # Catch-all for the frontend app (MUST BE LAST)
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 
 if __name__ == "__main__":
