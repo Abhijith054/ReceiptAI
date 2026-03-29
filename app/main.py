@@ -240,7 +240,7 @@ async def extract_from_upload(
 
     # ── Extract fields ──
     extracted = extractor.extract(ocr_text)
-
+    
     # Include image for storage
     if file is not None:
         extracted["image_data"] = image_data
@@ -248,22 +248,18 @@ async def extract_from_upload(
     # ── Persist ──
     record = storage.save_record(extracted, doc_id=doc_id, filename=filename, session_id=session_id)
     
-    # Store file extension natively in record so frontend can find it
-    if file is not None and "file_ext" not in record:
-        ext = Path(filename).suffix if filename else ".jpg"
-        record["file_ext"] = ext
-        # hacky but works for the session
-        record["has_image"] = True 
-
     return {
         "doc_id": record["doc_id"],
         "filename": record["filename"],
         "has_image": True if file is not None else False,
-        "file_ext": Path(filename).suffix if (file and filename) else ".jpg",
         "timestamp": record["timestamp"],
-        "extracted": record["extracted"],
+        "extracted": {
+            "vendor": record["extracted"].get("vendor"),
+            "date": record["extracted"].get("date"),
+            "total_amount": record["extracted"].get("total_amount")
+        },
         "method": record["method"],
-        "message": "Extraction successful. Use /query to ask questions about this receipt.",
+        "message": "Extraction successful. High-confidence AI logic applied.",
     }
 
 

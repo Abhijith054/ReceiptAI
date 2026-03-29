@@ -134,7 +134,7 @@ function formatExtractionCard(record) {
                     <span class="text-[9px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
                          <iconify-icon icon="solar:shop-2-bold" class="text-indigo-500"></iconify-icon> Vendor
                     </span>
-                    <span class="text-xs font-bold text-gray-300 font-inter">${ex.vendor_name || '—'}</span>
+                    <span class="text-xs font-bold text-gray-300 font-inter">${ex.vendor || '—'}</span>
                 </div>
                 <div class="flex items-center justify-between pb-3 border-b border-white/[0.03]">
                     <span class="text-[9px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
@@ -146,7 +146,7 @@ function formatExtractionCard(record) {
                     <span class="text-[10px] font-black text-emerald-500 uppercase tracking-[0.15em] flex items-center gap-2">
                          <iconify-icon icon="solar:banknote-bold" class="text-emerald-500 text-xs"></iconify-icon> Total Amount
                     </span>
-                    <span class="text-base font-black text-emerald-500 tracking-tighter">${ex.total_amount || '—'}</span>
+                    <span class="text-base font-black text-emerald-500 tracking-tighter">${typeof ex.total_amount === 'number' ? ex.total_amount.toLocaleString() : (ex.total_amount || '—')}</span>
                 </div>
             </div>
             

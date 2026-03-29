@@ -183,90 +183,114 @@ def load_and_process_cord(
     return results["train"], results["val"], results["test"]
 
 
-# ─── Regex-based fallback extraction ─────────────────────────────────────────
+# ─── Improved Regex & Cleaning ────────────────────────────────────────────────
 
-TOTAL_RE = re.compile(
-    r"(?:grand\s*)?(?:total|tota|t0tal|amount|subtotal|sum)[^\d]*([\d,\.\s]+)",
-    re.IGNORECASE,
-)
-DATE_RE = re.compile(
-    r"(\d{1,4}[-/\.]\d{1,2}[-/\.]\d{2,4}|\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})",
-    re.IGNORECASE,
-)
-VENDOR_RE = re.compile(r"^([A-Z0-9][A-Za-z0-9\-\s&\'\.]{2,40})$", re.MULTILINE)
-ID_RE = re.compile(
-    r"(?:receipt|invoice|no|id|#)[^\w]*([A-Z0-9\-]{4,20})",
-    re.IGNORECASE,
-)
+def normalize_ocr(text: str) -> str:
+    """Clean and normalize OCR text for better extraction."""
+    if not text: return ""
+    # Remove extra whitespace and standardized common artifacts
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text.lower()
 
+TOTAL_KEYWORDS = ["total", "subtotal", "grand total", "amount due", "net amt", "total price"]
+IGNORE_KEYWORDS = ["cash", "change", "tax", "vat", "discount", "promo", "saving", "bal", "due"]
+
+def parse_amount(text: str) -> Optional[float]:
+    """Convert string amount to float, handling common currency separators."""
+    if not text: return None
+    try:
+        # Remove currency symbols and non-numeric except . and ,
+        clean = re.sub(r'[^\d.,]', '', text)
+        if not clean: return None
+        
+        # Handle cases like 197.450 -> 197450 (if thousand separator) vs 197.45 (decimal)
+        # Heuristic: if there are 3 digits after the separator, it's likely a thousands separator (RP/Euro style)
+        if ',' in clean and '.' in clean:
+            # Traditional US: 1,234.56
+            clean = clean.replace(',', '')
+        elif ',' in clean:
+            # Euro style: 1.234,56 or 1234,56
+            if len(clean.split(',')[-1]) == 3:
+                clean = clean.replace(',', '') # thousands
+            else:
+                clean = clean.replace(',', '.') # decimal
+        elif '.' in clean:
+            # Period only: 1.234.567 or 1234.56
+            parts = clean.split('.')
+            if len(parts[-1]) == 3 and len(parts) > 1:
+                clean = clean.replace('.', '') # thousands
+        
+        return float(clean)
+    except:
+        return None
 
 def regex_extract(text: str) -> Dict:
-    """Fast regex-based extraction as fallback when model isn't available."""
-    result: Dict[str, Optional[str]] = {
-        "total_amount": None,
-        "date": None,
-        "vendor_name": None,
-        "receipt_id": None,
-    }
-
-    # Clean currency symbols before searching to avoid breaking the word boundary
-    clean_text = re.sub(r'[Rr][Pp]\.?|\$|€|£|¥', '', text)
-
-    m = TOTAL_RE.search(clean_text)
-    if m:
-        # Get the first captured group and strip spaces/extra characters
-        val = m.group(1).strip()
-        result["total_amount"] = val
-    else:
-        # Fallback: Find anything that looks like a high-value amount (at least 2 digits)
-        # Handle formats like 22,000 or 22.000 or 22 000 
-        candidates = re.findall(r'\b\d{1,3}(?:[.,\s]\d{3})+(?:\.\d{2})?\b|\b\d{1,}\.\d{2}\b', clean_text)
-        if candidates:
-            # Grand total is usually the last/highest price mentioned relative to label
-            result["total_amount"] = candidates[-1].replace(" ", "")
-        else:
-            # Last resort: Any number with a decimal/comma at the end of the text
-            last_nums = re.findall(r'(\d+[.,\s]\d+)', clean_text)
-            if last_nums:
-                result["total_amount"] = last_nums[-1].replace(" ", "")
-
-
-    m = DATE_RE.search(text)
-    if m:
-        result["date"] = m.group(1)
-
-    # Vendor Name heuristic: Usually the first or second substantive line
-    # that isn't a phone number, date, or long string of digits.
-    lines = [L.strip() for L in text.split('\n') if len(L.strip()) >= 3]
-    for line in lines[:5]:
-        # Must contain at least 3 actual letters to be considered a vendor name
-        if not re.search(r'[A-Za-z]{3,}', line):
-            continue
-            
-        # Reject lines that perfectly match common item formats: "1 Ayam Pop" or contain prices
-        if re.search(r'^\d{1,2}\s+[a-zA-Z]', line) or re.search(r'\d{2,}[\.,]\d{2,}', line):
-            continue
-            
-        # If it doesn't have too many numbers (like a phone/tax ID), it's probably the vendor brand.
-        if not re.search(r'\d{5,}', line) and not TOTAL_RE.search(line):
-            # Check if line contains "cash" or "change" - if so, likely not vendor
-            if re.search(r'\b(cash|change|due|balance|tendered)\b', line, re.I):
-                continue
-            result["vendor_name"] = line
+    """Enhanced regex extraction with smart total detection."""
+    result = {"vendor": None, "date": None, "total_amount": None}
+    
+    # 1. Date Extraction (Multiple Formats)
+    date_patterns = [
+        r'(\d{1,2}[-/\.]\d{1,2}[-/\.]\d{2,4})', # 25/12/2023
+        r'(\d{4}[-/\.]\d{1,2}[-/\.]\d{1,2})', # 2023/12/25
+        r'(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{2,4})', # 25 Dec 2023
+    ]
+    for pattern in date_patterns:
+        m = re.search(pattern, text, re.I)
+        if m:
+            result["date"] = m.group(1)
             break
 
-    # Final Cleanup
-    if result["total_amount"]:
-        # Only keep digits and decimal point
-        cleaned = re.sub(r'[^\d\.\,]', '', result["total_amount"])
-        # Remove trailing dots
-        result["total_amount"] = cleaned.strip('.')
+    # 2. Smart Total Detection
+    lines = text.split('\n')
+    candidates = []
+    
+    # regex for numbers like 10,000.00 or 10.000
+    price_pattern = re.compile(r'(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})?|\d{1,}[.,]\d{2})')
 
-    if result["vendor_name"]:
-        # Remove common artifacts like << or symbols at end
-        result["vendor_name"] = re.sub(r'[^a-zA-Z0-9\s&\'\.]', '', result["vendor_name"]).strip()
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        # Find lines with total keywords
+        if any(kw in line_lower for kw in TOTAL_KEYWORDS):
+            # Skip lines with ignore keywords
+            if any(ik in line_lower for ik in IGNORE_KEYWORDS if ik not in line_lower):
+                 # Wait, 'cash' might be on the same line. If line has both 'total' and 'cash', it's usually cash tendered.
+                 if "cash" in line_lower or "change" in line_lower:
+                     continue
+            
+            # Find numbers in this line or next line
+            nums = price_pattern.findall(line)
+            if not nums and i + 1 < len(lines):
+                nums = price_pattern.findall(lines[i+1])
+            
+            for n in nums:
+                val = parse_amount(n)
+                if val: candidates.append(val)
 
-    result["receipt_id"] = m.group(1) if (m := ID_RE.search(text)) else None
+    if candidates:
+        # Priority: usually the largest number found near 'total' keywords
+        result["total_amount"] = max(candidates)
+    else:
+        # Global fallback: largest number in whole text (risky)
+        all_nums = price_pattern.findall(text)
+        vals = [parse_amount(n) for n in all_nums if parse_amount(n)]
+        # Filter out numbers that look like dates or phone numbers (e.g. > 10 chars)
+        vals = [v for v in vals if v < 10000000] # threshold for noise
+        if vals:
+            result["total_amount"] = max(vals)
+
+    # 3. Vendor Name Extraction
+    # Filter out noise lines
+    noise = ["receipt", "invoice", "terminal", "welcome", "thank you", "cashier", "date", "time", "order", "reprint"]
+    substantive_lines = []
+    for line in lines[:8]:
+        L = line.strip()
+        if len(L) < 3: continue
+        if any(n in L.lower() for n in noise): continue
+        if re.search(r'\d{5,}', L): continue # likely ID or phone
+        substantive_lines.append(L)
+    
+    if substantive_lines:
+        result["vendor"] = substantive_lines[0]
 
     return result
 

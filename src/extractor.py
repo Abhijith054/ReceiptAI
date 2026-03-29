@@ -78,16 +78,18 @@ class ReceiptExtractor:
             from groq import Groq
             client = Groq(api_key=api_key)
             
-            prompt = f"""Extract the following fields from this receipt OCR text in JSON format:
-- vendor_name (Name of the store/restaurant)
-- date (Date of transaction in any clear format)
-- total_amount (Total amount paid, including decimal/cents)
-- receipt_id (The receipt or invoice number if present)
+            prompt = f"""Extract structured data from this receipt OCR text.
+Return ONLY a JSON object with these EXACT keys:
+{{
+  "vendor": "Store name string (clean and title case)",
+  "date": "YYYY-MM-DD or null if not found",
+  "total_amount": numerical_value (float/int)
+}}
 
 Rules:
-1. Return ONLY JSON.
-2. If a field is not found, set it to null.
-3. Be precise with the 'total_amount'.
+1. No currency symbols.
+2. If total is not found, return 0.
+3. Output MUST be valid JSON.
 
 OCR Text:
 {text[:2000]}
@@ -138,46 +140,87 @@ JSON Output:"""
         1. Trained DistilBERT Model (Primary Intelligence)
         2. Regex (Precision Fallback)
         """
-        if not text:
-            return {"total_amount": None, "date": None, "vendor_name": None, "receipt_id": None, "method": "empty"}
-
-        # Phase 1: Use your Trained Model (BERT)
-        res = {}
-        method = "regex"
+    def extract(self, text: str) -> Dict:
+        """
+        Final Production Extraction Pipeline:
+        1. Normalization
+        2. Local Model (Primary if loaded)
+        3. Smart Regex (Secondary)
+        4. Groq LLM (High-Confidence Fallback)
+        5. Validation & Strict Formatting
+        """
+        from src.data_processor import normalize_ocr, regex_extract
         
+        # 0. Normalize & Log
+        clean_text = normalize_ocr(text)
+        print(f"[Extractor] Starting extraction for OCR length: {len(text)}")
+        
+        # Initialize result with defaults
+        res = {"vendor": None, "date": None, "total_amount": None}
+        method = "regex"
+
+        # 1. Local Model Attempt (BERT)
         if self._model_loaded:
             try:
-                ner_out = self._pipeline(text[:512]) # limit context window
-                res = self._format_ner_results(ner_out)
+                ner_out = self._pipeline(text[:1024])
+                bert_res = self._format_ner_results(ner_out)
+                # Map old keys to new keys
+                res["vendor"] = bert_res.get("vendor_name")
+                res["date"] = bert_res.get("date")
+                res["total_amount"] = bert_res.get("total_amount")
                 method = "Trained DistilBERT (NER)"
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Extractor] BERT failed: {e}")
 
-        # Phase 2: High-Intelligence Fallback (Groq LLM)
-        # Triggered if BERT is missing or if key fields (total/vendor) are empty
-        if not res.get("total_amount") or not res.get("vendor_name"):
+        # 2. Smart Regex Attempt
+        reg_res = regex_extract(text)
+        # Fill gaps from regex
+        if not res["vendor"]: res["vendor"] = reg_res.get("vendor")
+        if not res["date"]: res["date"] = reg_res.get("date")
+        if not res["total_amount"]: res["total_amount"] = reg_res.get("total_amount")
+
+        # 3. Validation Layer
+        def is_valid(data):
+            try:
+                total = float(data.get("total_amount") or 0)
+                return total > 0 and data.get("vendor") and data.get("date")
+            except: return False
+
+        # 4. LLM Fallback (Groq) - Triggered if data is invalid or missing
+        if not is_valid(res):
+            print("[Extractor] Confidence low. Falling back to Groq AI…")
             groq_res = self._extract_with_groq(text)
             if groq_res:
-                # Merge: take what we don't have
-                for k, v in groq_res.items():
-                    if v and not res.get(k):
-                        res[k] = v
+                # Prioritize Groq's high-intelligence results
+                res["vendor"] = groq_res.get("vendor_name") or groq_res.get("vendor")
+                res["date"] = groq_res.get("date")
+                res["total_amount"] = groq_res.get("total_amount")
                 method = "Groq High-Intelligence AI"
 
-        # Phase 3: Precision verification with internal patterns (Regex)
-        fallback = regex_extract(text)
+        # 5. Final Sanitization
+        try:
+            # Ensure total_amount is a number (number type in JSON)
+            if res["total_amount"]:
+                # strip non-numeric or currency symbols if any left
+                if isinstance(res["total_amount"], str):
+                    s = re.sub(r'[^\d.]', '', res["total_amount"])
+                    res["total_amount"] = float(s) if s else 0.0
+                else:
+                    res["total_amount"] = float(res["total_amount"])
+            else:
+                res["total_amount"] = 0.0
+        except:
+            res["total_amount"] = 0.0
+
+        print(f"[Extractor] Final Result: {res} | Method: {method}")
         
-        # Final Merge
-        final = {
-            "vendor_name": res.get("vendor_name") or fallback.get("vendor_name"),
-            "date": res.get("date") or fallback.get("date"),
-            "total_amount": res.get("total_amount") or fallback.get("total_amount"),
-            "receipt_id": res.get("receipt_id") or fallback.get("receipt_id"),
+        return {
+            "vendor": res["vendor"] or "Unknown Store",
+            "date": res["date"], # LLM or regex will return YYYY-MM-DD or None
+            "total_amount": res["total_amount"],
             "raw_text": text,
             "method": method
         }
-        
-        return final
 
 
 # Singleton
