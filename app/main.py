@@ -362,9 +362,15 @@ def extract_from_upload(
 
                 img = Image.open(io.BytesIO(content))
                 
-                # Preprocess for better OCR
-                # Upscale by 1.5x to help Tesseract with smaller/blurry character fonts
-                img = img.resize((int(img.width * 1.5), int(img.height * 1.5)), Image.Resampling.LANCZOS)
+                # Preprocess for better OCR on Render (Resource Capped)
+                # Resize down if dangerously large, or scale up gently if small
+                max_width = 1800
+                if img.width > max_width:
+                    ratio = max_width / float(img.width)
+                    img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.Resampling.LANCZOS)
+                elif img.width < 800:
+                    img = img.resize((int(img.width * 1.5), int(img.height * 1.5)), Image.Resampling.LANCZOS)
+                
                 img = img.convert('L')  # Grayscale
                 
                 # Boost contrast slightly to distinguish letters from background noise

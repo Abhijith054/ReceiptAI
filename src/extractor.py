@@ -43,6 +43,7 @@ class ReceiptExtractor:
         if self.skip_local: return
 
         try:
+            import torch
             from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 
             model_path = Path(self.model_dir)
@@ -51,12 +52,24 @@ class ReceiptExtractor:
                 return
 
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
-            self._model = AutoModelForTokenClassification.from_pretrained(self.model_dir)
+            
+            # Load basic model with explicit low CPU memory flags
+            raw_model = AutoModelForTokenClassification.from_pretrained(
+                self.model_dir, 
+                low_cpu_mem_usage=True
+            )
+            
+            # Apply PyTorch 8-bit Dynamic Quantization (Shrinks RAM by 4x, speeds up CPU inference)
+            self._model = torch.quantization.quantize_dynamic(
+                raw_model, {torch.nn.Linear}, dtype=torch.qint8
+            )
+            
             self._pipeline = pipeline(
                 "ner", 
                 model=self._model, 
                 tokenizer=self._tokenizer, 
-                aggregation_strategy="simple"
+                aggregation_strategy="simple",
+                device=-1 # Force CPU execution
             )
             self._model_loaded = True
             print(f"[Extractor] BERT Model System: ONLINE ✓")
@@ -69,7 +82,8 @@ class ReceiptExtractor:
 
         try:
             from groq import Groq
-            client = Groq(api_key=self.groq_api_key)
+            # Apply strict 5-second timeout to prevent stalling the backend
+            client = Groq(api_key=self.groq_api_key, timeout=5.0)
             
             # Specific Prompt (Rule 5)
             prompt = f"""
