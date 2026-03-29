@@ -24,12 +24,24 @@ const docList = document.getElementById("doc-list");
 const chatMessages = document.getElementById("chat-messages");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
-const uploadBtn = document.getElementById("upload-btn");
 const fileInput = document.getElementById("file-input");
-const chatTitle = document.getElementById("chat-title");
 const statusDot = document.getElementById("status-dot");
 const apiStatusText = document.getElementById("api-status-text");
 const toastCont = document.getElementById("toast-container");
+
+// New Panel Refs
+const previewPlaceholder = document.getElementById("preview-placeholder");
+const activeImageWrapper = document.getElementById("active-image-wrapper");
+const activeImage = document.getElementById("active-image");
+const previewLoader = document.getElementById("preview-loader");
+const analysisStatus = document.getElementById("analysis-status");
+const dataShimmer = document.getElementById("data-shimmer");
+const extractedFields = document.getElementById("extracted-fields");
+const fieldVendor = document.getElementById("field-vendor");
+const fieldDate = document.getElementById("field-date");
+const fieldTotal = document.getElementById("field-total");
+const reExtractBtn = document.getElementById("re-extract-btn");
+const viewJsonHeader = document.getElementById("view-json-header");
 
 // ── Interaction Logic ──────────────────────────────────────────────────────────
 chatInput.addEventListener("input", () => {
@@ -67,35 +79,39 @@ async function checkHealth() {
     try {
         const r = await fetch(`${API}/health`);
         if (r.ok) {
-            statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
-            apiStatusText.textContent = "Assistant Online";
-            apiStatusText.className = "text-[10px] font-bold text-emerald-500 uppercase tracking-widest";
+            if(statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+            if(apiStatusText) {
+                apiStatusText.textContent = "Assistant Online";
+                apiStatusText.className = "text-[10px] font-bold text-emerald-500 uppercase tracking-widest";
+            }
         } else throw new Error();
     } catch {
-        statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
-        apiStatusText.textContent = "Assistant Offline";
-        apiStatusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
+        if(statusDot) statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
+        if(apiStatusText) {
+            apiStatusText.textContent = "Assistant Offline";
+            apiStatusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
+        }
     }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 function appendMessage(content, role = "assistant") {
     const wrap = document.createElement("div");
-    wrap.className = `flex ${role === 'user' ? 'justify-end' : 'items-start'} gap-4 max-w-[85%] animate-slide-in ${role === 'user' ? 'ml-auto' : ''}`;
+    wrap.className = `flex ${role === 'user' ? 'justify-end' : 'items-start'} gap-4 max-w-[90%] animate-slide-in ${role === 'user' ? 'ml-auto' : ''}`;
 
     const iconHtml = role === 'assistant'
-        ? `<div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
-      </div>`
-        : `<div class="w-9 h-9 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-500 shrink-0">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-      </div>`;
+        ? `<div class="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
+             <iconify-icon icon="solar:bot-bold" class="text-lg"></iconify-icon>
+           </div>`
+        : `<div class="w-8 h-8 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-500 shrink-0">
+             <iconify-icon icon="solar:user-bold" class="text-lg"></iconify-icon>
+           </div>`;
 
     wrap.innerHTML = role === 'assistant' ? `
     ${iconHtml}
-    <div class="bubble-assistant p-4 text-sm leading-relaxed">${content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>")}</div>
+    <div class="bubble-assistant p-4 text-[11px] leading-relaxed max-w-[85%]">${content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>")}</div>
   ` : `
-    <div class="bubble-user p-4 text-sm leading-relaxed font-bold">${content}</div>
+    <div class="bubble-user p-4 text-[11px] leading-relaxed font-bold">${content}</div>
     ${iconHtml}
   `;
 
@@ -105,57 +121,60 @@ function appendMessage(content, role = "assistant") {
 }
 
 function appendThinking() {
-    const wrap = appendMessage(`<div class="flex items-center gap-3 py-1 font-bold text-indigo-400 uppercase tracking-[0.2em] text-[10px]"><div class="spinner"></div> Assistant Processing...</div>`, "assistant");
+    const wrap = appendMessage(`<div class="flex items-center gap-3 py-1 font-bold text-indigo-400 uppercase tracking-[0.2em] text-[9px]"><div class="spinner"></div> Assistant Processing...</div>`, "assistant");
     wrap.id = "thinking-msg";
     return wrap;
 }
 
-// ── Rendering Data Card ───────────────────────────────────────────────────────
-function formatExtractionCard(record) {
+// ── Panel Management ─────────────────────────────────────────────────────────
+function updateExtractionPanel(record) {
     const ex = record.extracted || {};
+    const imgData = record.image_data || ex.image_data || record.image_url || ex.image_url;
+    
+    // 1. Update Preview
+    if (imgData) {
+        previewPlaceholder.classList.add("hidden");
+        activeImageWrapper.classList.remove("hidden");
+        // Reset opacity for transition
+        activeImage.classList.remove("opacity-100");
+        activeImage.classList.add("opacity-0");
+        activeImage.src = imgData;
+    } else {
+        previewPlaceholder.classList.remove("hidden");
+        activeImageWrapper.classList.add("hidden");
+        const previewText = document.getElementById("preview-text");
+        if(previewText) previewText.textContent = "Upload a receipt to begin";
+    }
 
-    const imageSection = record.image_data 
-        ? `<div class="mb-5 rounded-2xl overflow-hidden border border-white/5 cursor-zoom-in group/img relative">
-             <img src="${record.image_data}" class="w-full h-auto max-h-64 object-cover transition-transform duration-500 group-hover/img:scale-105" onclick="window.open('${record.image_data}', '_blank')" />
-             <div class="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                <iconify-icon icon="solar:magnifer-zoom-in-bold" class="text-white text-2xl"></iconify-icon>
-             </div>
-           </div>` 
-        : '';
+    // 2. Update Data Fields
+    dataShimmer.classList.add("hidden");
+    extractedFields.classList.remove("hidden");
+    analysisStatus.classList.remove("hidden");
 
-    return `
-        <div class="space-y-6" data-doc-id="${record.doc_id}">
-            <p>I've extracted the core fields from **${record.filename || 'your document'}**. Here is the report:</p>
-            
-            ${imageSection}
+    fieldVendor.textContent = ex.vendor || "Not detected";
+    fieldVendor.classList.toggle("italic", !ex.vendor);
+    fieldVendor.classList.toggle("text-gray-500", !ex.vendor);
 
-            <div class="bg-gray-950/50 border border-white/5 rounded-2xl p-5 space-y-3 font-inter">
-                <div class="flex items-center justify-between pb-3 border-b border-white/[0.03]">
-                    <span class="text-[9px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
-                         <iconify-icon icon="solar:shop-2-bold" class="text-indigo-500"></iconify-icon> Vendor
-                    </span>
-                    <span class="text-xs font-bold text-gray-300 font-inter">${ex.vendor || '—'}</span>
-                </div>
-                <div class="flex items-center justify-between pb-3 border-b border-white/[0.03]">
-                    <span class="text-[9px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
-                         <iconify-icon icon="solar:calendar-bold" class="text-indigo-500"></iconify-icon> Date
-                    </span>
-                    <span class="text-xs font-bold text-gray-300 font-mono">${ex.date || '—'}</span>
-                </div>
-                <div class="flex items-center justify-between pb-1">
-                    <span class="text-[10px] font-black text-emerald-500 uppercase tracking-[0.15em] flex items-center gap-2">
-                         <iconify-icon icon="solar:banknote-bold" class="text-emerald-500 text-xs"></iconify-icon> Total Amount
-                    </span>
-                    <span class="text-base font-black text-emerald-500 tracking-tighter">${typeof ex.total_amount === 'number' ? ex.total_amount.toLocaleString() : (ex.total_amount || '—')}</span>
-                </div>
-            </div>
-            
-            <div class="flex items-center gap-2 mt-4">
-                <span class="text-[8px] font-black uppercase text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded">Method: ${record.method === 'model' ? 'DistilBERT NER' : 'Regex'}</span>
-                <span class="text-[8px] font-black uppercase text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded">Analysis Successful</span>
-            </div>
-        </div>
-    `;
+    fieldDate.textContent = ex.date || "Not detected";
+    fieldDate.classList.toggle("italic", !ex.date);
+    fieldDate.classList.toggle("text-gray-500", !ex.date);
+
+    if (typeof ex.total_amount === 'number') {
+        fieldTotal.textContent = ex.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 });
+    } else {
+        fieldTotal.textContent = "0.00";
+    }
+}
+
+function showLoadingPanel() {
+    previewLoader.classList.remove("hidden");
+    dataShimmer.classList.remove("hidden");
+    extractedFields.classList.add("hidden");
+    analysisStatus.classList.add("hidden");
+}
+
+function hideLoadingPanel() {
+    previewLoader.classList.add("hidden");
 }
 
 // ── App Logic ─────────────────────────────────────────────────────────────────
@@ -166,139 +185,86 @@ async function loadDocuments() {
         const data = await r.json();
         documents = data.documents || [];
         renderDocList();
+        
+        // Ensure consistent state on initial load
+        if (documents.length > 0 && !selectedDocId) {
+            const latest = [...documents].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+            selectDocument(latest);
+        }
     } catch { /* silence */ }
 }
 
 function renderDocList() {
-    // Group documents by session_id
-    const sessions = {};
-    documents.forEach(doc => {
-        const sid = doc.session_id || 'default_session';
-        if (!sessions[sid]) {
-            sessions[sid] = {
-                id: sid,
-                docs: [],
-                latest: doc.timestamp
-            };
-        }
-        sessions[sid].docs.push(doc);
-    });
+    docList.innerHTML = "";
+    
+    // Add "Sessions" Label if not first item
+    const label = document.createElement("div");
+    label.className = "px-4 pt-4 mb-2 text-[9px] font-black text-gray-700 uppercase tracking-[0.2em]";
+    label.innerText = "Active Sessions";
+    docList.appendChild(label);
 
-    const sessionList = Object.values(sessions).sort((a, b) => new Date(b.latest) - new Date(a.latest));
-
-    const overviewHeader = document.querySelector('.text-\\[10px\\].font-bold.text-gray-700.uppercase.tracking-widest');
-    if (overviewHeader) {
-        overviewHeader.textContent = `Chat History (${sessionList.length})`;
-    }
-
-    if (sessionList.length === 0) {
-        docList.innerHTML = `<p class="px-6 text-[10px] text-gray-700 italic font-bold uppercase tracking-widest py-10 text-center">No active context</p>`;
+    if (documents.length === 0) {
+        docList.innerHTML += `<p class="px-6 text-[9px] text-gray-700 italic font-bold uppercase tracking-widest py-10 text-center">Empty Vault</p>`;
         return;
     }
 
-    docList.innerHTML = "";
-    sessionList.forEach(sn => {
-        const active = sn.id === sessionId;
-        const item = document.createElement("div");
-        item.className = `group flex items-center justify-between gap-3 px-5 py-3 rounded-lg cursor-pointer transition-all border-r-2 ${active ? 'bg-white/[0.03] text-white border-indigo-600' : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.01] border-transparent'}`;
+    // Sort by timestamp
+    const sortedDocs = [...documents].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        const label = sn.docs[0]?.filename || 'Session Analysis';
-        const docCount = sn.docs.length > 1 ? `<span class="ml-1 text-[9px] opacity-40">+${sn.docs.length - 1}</span>` : '';
+    sortedDocs.forEach(record => {
+        const active = selectedDocId === record.doc_id;
+        const item = document.createElement("div");
+        item.className = `group flex items-center justify-between gap-3 px-5 py-3 rounded-xl cursor-pointer transition-all border shrink-0 mx-2 mb-1 ${active ? 'bg-indigo-600/10 border-indigo-500/30 text-white shadow-[0_0_15px_rgba(99,102,241,0.1)]' : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]'}`;
 
         item.innerHTML = `
             <div class="flex items-center gap-3 truncate flex-1">
-                 <iconify-icon icon="solar:chat-line-linear" class="text-lg ${active ? 'text-indigo-500' : 'text-gray-700 group-hover:text-indigo-500 transition-colors'}"></iconify-icon>
-                 <span class="truncate text-[11px] font-bold leading-none mt-0.5">${label}${docCount}</span>
+                 <iconify-icon icon="solar:document-text-bold" class="text-xl ${active ? 'text-indigo-400' : 'text-gray-800 transition-colors'}"></iconify-icon>
+                 <div class="flex flex-col truncate">
+                    <span class="truncate text-[10px] font-black uppercase tracking-tight">${record.filename || 'Unnamed Doc'}</span>
+                    <span class="text-[8px] text-gray-700 font-bold">${new Date(record.timestamp).toLocaleDateString()}</span>
+                 </div>
             </div>
-            <button class="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-500 transition-all p-1 delete-session-btn" data-id="${sn.id}">
+            <button class="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-500 transition-all p-1 delete-doc-btn" data-id="${record.doc_id}">
                 <iconify-icon icon="solar:trash-bin-trash-linear" class="text-base"></iconify-icon>
             </button>
         `;
 
         item.addEventListener("click", (e) => {
-            if (e.target.closest(".delete-session-btn")) return;
-            switchSession(sn);
+            if (e.target.closest(".delete-doc-btn")) return;
+            selectDocument(record);
         });
 
-        item.querySelector(".delete-session-btn").addEventListener("click", (e) => {
+        item.querySelector(".delete-doc-btn").addEventListener("click", (e) => {
             e.stopPropagation();
-            deleteSession(sn.id);
+            deleteDocument(record.doc_id);
         });
 
         docList.appendChild(item);
     });
 }
 
-async function deleteSession(sid) {
-    if (!confirm("Are you sure you want to delete this entire session and all its documents?")) return;
-
-    try {
-        const sessionDocs = documents.filter(d => (d.session_id || 'default_session') === sid);
-
-        // Delete all docs in this session
-        await Promise.all(sessionDocs.map(d => fetch(`${API}/documents/${d.doc_id}`, { method: "DELETE" })));
-
-        toast("Session removed", "success");
-        if (sessionId === sid) {
-            resetChat();
-        } else {
-            await loadDocuments();
-        }
-    } catch { toast("Deletion failed", "error"); }
-}
-
-function switchSession(sn) {
-    sessionId = sn.id;
-    localStorage.setItem("receipt_ia_sid", sessionId);
-
-    chatMessages.innerHTML = "";
-    chatTitle.textContent = "Chat Session Reloaded";
-
-    // Rebuild chat from session documents
-    sn.docs.forEach(doc => {
-        appendMessage(formatExtractionCard(doc), "assistant");
-    });
-
-    appendMessage(`**Session Summary**: I've reloaded **${sn.docs.length}** document(s) for this conversation. You can continue asking questions about any of them.`, "assistant");
-
-    renderDocList();
-}
-
-function openConversation(record) {
-    // Check if we already have this card in the chat
-    const existingCard = document.querySelector(`[data-doc-id="${record.doc_id}"]`);
-    if (existingCard) {
-        existingCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        existingCard.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-4', 'ring-offset-black');
-        setTimeout(() => existingCard.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-4', 'ring-offset-black'), 2000);
-    } else {
-        appendMessage(formatExtractionCard(record), "assistant");
-        appendMessage(`Loaded context for **${record.filename}**. Asking about "this document" will now focus on its data.`, "assistant");
-    }
-
+function selectDocument(record) {
     selectedDocId = record.doc_id;
-    chatTitle.textContent = `${record.filename || 'Session'} Context`;
+    updateExtractionPanel(record);
     renderDocList();
+    
+    chatMessages.innerHTML = "";
+    appendMessage(`Analyzing context for **${record.filename}**. You can now query specific details like totals, line items, or dates from this document.`, "assistant");
 }
 
 async function deleteDocument(docId) {
+    if (!confirm("Are you sure you want to delete this document?")) return;
     try {
         const r = await fetch(`${API}/documents/${docId}`, { method: "DELETE" });
         if (r.ok) {
-            toast("Removed analysis", "success");
+            toast("Analysis removed", "success");
             if (selectedDocId === docId) {
                 selectedDocId = null;
-                chatTitle.textContent = "New Conversation";
-                chatMessages.innerHTML = `
-                    <div class="flex items-start gap-4 max-w-3xl animate-slide-in">
-                        <div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
-                            <iconify-icon icon="solar:robot-bold" class="text-lg"></iconify-icon>
-                        </div>
-                        <div class="bubble-assistant p-4 text-sm font-medium leading-relaxed">
-                            Session context cleared. Ready for your next document.
-                        </div>
-                    </div>
-                `;
+                previewPlaceholder.classList.remove("hidden");
+                activeImageWrapper.classList.add("hidden");
+                extractedFields.classList.add("hidden");
+                analysisStatus.classList.add("hidden");
+                chatMessages.innerHTML = "";
             }
             await loadDocuments();
         }
@@ -307,7 +273,7 @@ async function deleteDocument(docId) {
 
 async function doUpload(file) {
     toast(`Syncing ${file.name}`, "info");
-    const thinking = appendThinking();
+    showLoadingPanel();
 
     try {
         const form = new FormData();
@@ -315,29 +281,20 @@ async function doUpload(file) {
         form.append("session_id", sessionId);
         const r = await fetch(`${API}/extract`, { method: "POST", body: form });
 
-        thinking.remove();
+        hideLoadingPanel();
         if (!r.ok) {
             const errData = await r.json().catch(() => ({ detail: "Network error" }));
-            const errMsg = errData.detail || "Extraction Failed";
-            toast(errMsg, "error");
-            appendMessage(`⚠️ **Extraction Error**: ${errMsg}`, "assistant");
+            toast(errData.detail || "Extraction Failed", "error");
             return;
         }
 
         const data = await r.json();
         toast("Analysis complete", "success");
         await loadDocuments();
-
-        // Instead of opening and clearing, we append and focus
-        appendMessage(formatExtractionCard(data), "assistant");
-        appendMessage(`Synchronized **${data.filename}**. It has been added to your session context.`, "assistant");
-
-        selectedDocId = data.doc_id;
-        chatTitle.textContent = `${data.filename} Context`;
-        renderDocList();
+        selectDocument(data);
 
     } catch (err) {
-        thinking.remove();
+        hideLoadingPanel();
         toast("API Connectivity Lost", "error");
     }
 }
@@ -368,10 +325,9 @@ async function sendQuestion() {
         } else {
             appendMessage("⚠️ Contextual retrieval failed. My extraction scope is limited for this document.", "assistant");
         }
-
     } catch {
         thinking.remove();
-        appendMessage("⚠️ Network failure. Is uvicorn running?", "assistant");
+        appendMessage("⚠️ Network failure. Is server running?", "assistant");
     }
 }
 
@@ -389,64 +345,33 @@ chatInput.addEventListener("keydown", (e) => {
 });
 
 const newChatBtn = document.getElementById("new-chat-btn");
-
-function resetChat() {
-    sessionId = uuidv4();
-    localStorage.setItem("receipt_ia_sid", sessionId);
+if (newChatBtn) newChatBtn.addEventListener("click", () => {
     selectedDocId = null;
-    chatTitle.textContent = "New Conversation";
-    chatMessages.innerHTML = `
-        <div class="flex items-start gap-4 max-w-3xl animate-slide-in">
-            <div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
-                <iconify-icon icon="solar:robot-bold" class="text-lg"></iconify-icon>
-            </div>
-            <div class="bubble-assistant p-4 text-sm font-medium leading-relaxed">
-                New session started. Upload any receipt to begin analysis in this clear workspace.
-            </div>
-        </div>
-    `;
-    loadDocuments();
-}
+    previewPlaceholder.classList.remove("hidden");
+    activeImageWrapper.classList.add("hidden");
+    extractedFields.classList.add("hidden");
+    analysisStatus.classList.add("hidden");
+    chatMessages.innerHTML = "";
+    renderDocList();
+    toast("New session started", "info");
+});
 
-if (newChatBtn) newChatBtn.addEventListener("click", resetChat);
+reExtractBtn.addEventListener("click", () => {
+    if (selectedDocId) {
+        const doc = documents.find(d => d.doc_id === selectedDocId);
+        if (doc) toast(`Retrying extraction for ${doc.filename}...`, "info");
+    }
+});
 
-// ── Data Management Events ───────────────────────────────────────────────────
-const viewDocsBtn = document.getElementById("view-json-btn"); // Note: mismatched IDs in HTML maybe? Fixing here.
-const viewJsonBtn = document.getElementById("view-json-btn");
-const realViewDocsBtn = document.getElementById("view-docs-btn");
-
-if (realViewDocsBtn) {
-    realViewDocsBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        const activeDocs = documents.filter(d => (d.session_id || 'default_session') === sessionId);
-        if (activeDocs.length === 0) {
-            toast("No documents in session", "info");
-            return;
+viewJsonHeader.addEventListener("click", () => {
+    if (selectedDocId) {
+        const doc = documents.find(d => d.doc_id === selectedDocId);
+        if (doc) {
+            const json = JSON.stringify(doc.extracted, null, 2);
+            appendMessage(`### 🤖 Raw Structured JSON\n\n\`\`\`json\n${json}\n\`\`\``, "assistant");
         }
-
-        const list = activeDocs.map(d => `• **${d.filename}** (ID: ${d.doc_id})`).join("\n");
-        appendMessage(`### 📂 Current Session Documents\n\n${list}`, "assistant");
-    });
-}
-
-if (viewJsonBtn) {
-    viewJsonBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        const activeDocs = documents.filter(d => (d.session_id || 'default_session') === sessionId);
-        if (activeDocs.length === 0) {
-            toast("No structured data available", "info");
-            return;
-        }
-
-        const json = JSON.stringify(activeDocs.map(d => ({
-            id: d.doc_id,
-            file: d.filename,
-            extracted: d.extracted
-        })), null, 4);
-
-        appendMessage(`### 🤖 Structured JSON Data\n\n\`\`\`json\n${json}\n\`\`\``, "assistant");
-    });
-}
+    }
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {

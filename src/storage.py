@@ -129,15 +129,41 @@ class RecordStorage:
         return results
 
 
-class MongoStorage:
-    """Production MongoDB Storage."""
+class SQLAlchemyStorage:
+    """Production PostgreSQL/Supabase Storage via SQLAlchemy."""
 
-    def __init__(self, uri: str):
-        from pymongo import MongoClient
-        self.client = MongoClient(uri)
-        self.db = self.client["receipt_ai"]
-        self.collection = self.db["records"]
-        print("[Storage] MongoDB Atlas connected.")
+    def __init__(self, url: str):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+        
+        # Clean up URL
+        url = url.strip().replace("[", "").replace("]", "")
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        elif url.startswith("file:"):
+            # Handle Prisma/SQLite local file URLs
+            url = url.replace("file:", "sqlite:///", 1)
+            
+        self.engine = create_engine(url, pool_pre_ping=True)
+        self.Session = sessionmaker(bind=self.engine)
+        self._init_db()
+        print(f"[Storage] SQL Database connected.")
+
+    def _init_db(self):
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS receipt_records (
+                    doc_id TEXT PRIMARY KEY,
+                    session_id TEXT,
+                    filename TEXT,
+                    timestamp TIMESTAMPTZ DEFAULT NOW(),
+                    extracted JSONB,
+                    method TEXT,
+                    image_data TEXT
+                );
+            """))
+            conn.commit()
 
     def save_record(
         self,
@@ -146,9 +172,11 @@ class MongoStorage:
         filename: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> Dict:
+        from sqlalchemy import text
         if doc_id is None:
             doc_id = str(uuid.uuid4())[:8].upper()
             
+        # Standardize record for return and DB
         record = {
             "doc_id": doc_id,
             "session_id": session_id or "default_session",
@@ -157,49 +185,91 @@ class MongoStorage:
             "extracted": {
                 "total_amount": extracted.get("total_amount"),
                 "date": extracted.get("date"),
-                "vendor_name": extracted.get("vendor_name"),
+                "vendor_name": extracted.get("vendor_name") or extracted.get("vendor"),
                 "receipt_id": extracted.get("receipt_id"),
             },
-            "raw_text": extracted.get("raw_text", ""),
-            "method": extracted.get("method", "mongo"),
-            "image_data": extracted.get("image_data"), # Optional Base64
+            "method": extracted.get("method", "sql"),
+            "image_data": extracted.get("image_data"), 
         }
-        self.collection.update_one({"doc_id": doc_id}, {"$set": record}, upsert=True)
+
+        with self.Session() as session:
+            session.execute(text("""
+                INSERT INTO receipt_records (doc_id, session_id, filename, timestamp, extracted, method, image_data)
+                VALUES (:doc_id, :session_id, :filename, :timestamp, :extracted, :method, :image_data)
+                ON CONFLICT (doc_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    filename = EXCLUDED.filename,
+                    timestamp = EXCLUDED.timestamp,
+                    extracted = EXCLUDED.extracted,
+                    method = EXCLUDED.method,
+                    image_data = EXCLUDED.image_data;
+            """), {
+                "doc_id": record["doc_id"],
+                "session_id": record["session_id"],
+                "filename": record["filename"],
+                "timestamp": record["timestamp"],
+                "extracted": json.dumps(record["extracted"]),
+                "method": record["method"],
+                "image_data": record["image_data"]
+            })
+            session.commit()
         return record
 
     def get_record(self, doc_id: str) -> Optional[Dict]:
-        return self.collection.find_one({"doc_id": doc_id}, {"_id": 0})
+        from sqlalchemy import text
+        with self.Session() as session:
+            res = session.execute(text("SELECT * FROM receipt_records WHERE doc_id = :d"), {"d": doc_id}).fetchone()
+            if not res: return None
+            return self._row_to_dict(res)
 
     def list_all(self, limit: int = 100, session_id: Optional[str] = None) -> List[Dict]:
-        query = {"session_id": session_id} if session_id else {}
-        return list(self.collection.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit))
+        from sqlalchemy import text
+        query = "SELECT * FROM receipt_records"
+        params = {"l": limit}
+        if session_id:
+            query += " WHERE session_id = :s"
+            params["s"] = session_id
+        query += " ORDER BY timestamp DESC LIMIT :l"
+        
+        with self.Session() as session:
+            rows = session.execute(text(query), params).fetchall()
+            return [self._row_to_dict(r) for r in rows]
 
     def delete_record(self, doc_id: str) -> bool:
-        res = self.collection.delete_one({"doc_id": doc_id})
-        return res.deleted_count > 0
+        from sqlalchemy import text
+        with self.Session() as session:
+            res = session.execute(text("DELETE FROM receipt_records WHERE doc_id = :d"), {"d": doc_id})
+            session.commit()
+            return res.rowcount > 0
 
-    def search(self, query: str) -> List[Dict]:
-        query_re = re.compile(query, re.IGNORECASE)
-        # Search across all extracted fields
-        return list(self.collection.find({
-            "$or": [
-                {"extracted.vendor_name": query_re},
-                {"extracted.total_amount": query_re},
-                {"doc_id": query_re}
-            ]
-        }, {"_id": 0}))
+    def _row_to_dict(self, row) -> Dict:
+        # row indexes: 0:doc_id, 1:session_id, 2:filename, 3:timestamp, 4:extracted, 5:method, 6:image_data
+        # Note: SQLAlchemy row objects can be indexed or have attributes
+        return {
+            "doc_id": row[0],
+            "session_id": row[1],
+            "filename": row[2],
+            "timestamp": row[3].isoformat() if hasattr(row[3], "isoformat") else row[3],
+            "extracted": json.loads(row[4]) if isinstance(row[4], str) else row[4],
+            "method": row[5],
+            "image_data": row[6]
+        }
 
 
 # Singleton
 _storage_instance: Optional[RecordStorage] = None
 
-
 def get_storage() -> RecordStorage:
     global _storage_instance
     if _storage_instance is None:
-        if MONGO_URI:
-            # Note: We duck-type MongoStorage to match RecordStorage interface
-            _storage_instance = MongoStorage(MONGO_URI)
-        else:
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+             # Fallback
+             db_url = "postgresql://postgres:vevGoq-mahdy4-nupmuc@db.wobknzuvbszgjebpsnyl.supabase.co:5432/postgres"
+        
+        try:
+            _storage_instance = SQLAlchemyStorage(db_url)
+        except Exception as e:
+            print(f"[Storage] ERROR initializing SQLAlchemyStorage: {e}", flush=True)
             _storage_instance = RecordStorage()
     return _storage_instance

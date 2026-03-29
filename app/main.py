@@ -18,6 +18,10 @@ import json
 import uuid
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 import shutil
 # Setup Tesseract with hybrid discovery (PATH search + common absolute paths)
@@ -92,6 +96,7 @@ else:
 
 try:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[System] Uploads directory: {UPLOADS_DIR}")
 except Exception as e:
     print(f"[System] Warning: Could not initialize local disk paths ({e}). Environment may be restricted.")
 
@@ -241,9 +246,12 @@ async def extract_from_upload(
     # ── Extract fields ──
     extracted = extractor.extract(ocr_text)
     
-    # Include image for storage
+    # Include image for storage & return
     if file is not None:
         extracted["image_data"] = image_data
+        # Construct path-based URL for performance/caching
+        ext = Path(filename).suffix if filename else ".jpg"
+        extracted["image_url"] = f"/uploads/{doc_id}{ext}"
 
     # ── Persist ──
     record = storage.save_record(extracted, doc_id=doc_id, filename=filename, session_id=session_id)
@@ -253,11 +261,7 @@ async def extract_from_upload(
         "filename": record["filename"],
         "has_image": True if file is not None else False,
         "timestamp": record["timestamp"],
-        "extracted": {
-            "vendor": record["extracted"].get("vendor"),
-            "date": record["extracted"].get("date"),
-            "total_amount": record["extracted"].get("total_amount")
-        },
+        "extracted": record["extracted"], # Return full extracted keys including image_data/url
         "method": record["method"],
         "message": "Extraction successful. High-confidence AI logic applied.",
     }
@@ -309,19 +313,40 @@ async def list_documents(limit: int = 50, session_id: Optional[str] = None):
     """List all extracted receipt records, optionally filtered by session_id."""
     storage = get_storage()
     records = storage.list_all(limit=limit, session_id=session_id)
+    
+    docs = []
+    for r in records:
+        doc_id = r["doc_id"]
+        filename = r.get("filename", "")
+        # Fallback extension discovery
+        ext = Path(filename).suffix if filename else ".png"
+        
+        # Ensure image_url is present even for legacy records
+        image_url = r.get("extracted", {}).get("image_url")
+        if not image_url:
+            # Check if file exists on disk
+            potential = UPLOADS_DIR / f"{doc_id}{ext}"
+            if potential.exists():
+                image_url = f"/uploads/{doc_id}{ext}"
+            else:
+                # If .png didn't work, try .jpg
+                potential = UPLOADS_DIR / f"{doc_id}.jpg"
+                if potential.exists():
+                    image_url = f"/uploads/{doc_id}.jpg"
+        
+        docs.append({
+            "doc_id": doc_id,
+            "session_id": r.get("session_id"),
+            "filename": filename,
+            "timestamp": r.get("timestamp"),
+            "extracted": r.get("extracted"),
+            "image_url": image_url,
+            "method": r.get("method"),
+        })
+
     return {
-        "total": len(records),
-        "documents": [
-            {
-                "doc_id": r["doc_id"],
-                "session_id": r.get("session_id"),
-                "filename": r.get("filename"),
-                "timestamp": r.get("timestamp"),
-                "extracted": r.get("extracted"),
-                "method": r.get("method"),
-            }
-            for r in records
-        ],
+        "total": len(docs),
+        "documents": docs,
     }
 
 
@@ -344,21 +369,22 @@ async def delete_document(doc_id: str):
     return {"message": f"Document '{doc_id}' deleted."}
 
 
-# ── Static File Mounting (MUST BE LAST) ──────────────────────────────────────
+# ── Static File Mounting (ORDER MATTERS) ─────────────────────────────────────
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
-
-if FRONTEND_DIR.exists():
-    # Primary mount for standard asset calls (/app.js, /style.css)
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
-    
-    # Secondary mount for explicit static calls (/static/app.js)
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 if not IS_VERCEL:
     try:
+        # Mount uploads first so it's checked before the / catch-all
         app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-    except:
-        pass
+    except Exception as e:
+        print(f"[System] Could not mount uploads: {e}")
+
+if FRONTEND_DIR.exists():
+    # Mount specific static path
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    
+    # Catch-all for the frontend app (MUST BE LAST)
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 
 if __name__ == "__main__":
