@@ -14,22 +14,22 @@ let selectedDocId = null;
 let documents = [];
 
 function uuidv4() {
-  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
-    (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
-  );
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+        (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
+    );
 }
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const docList       = document.getElementById("doc-list");
-const chatMessages  = document.getElementById("chat-messages");
-const chatInput     = document.getElementById("chat-input");
-const sendBtn       = document.getElementById("send-btn");
-const uploadBtn     = document.getElementById("upload-btn");
-const fileInput     = document.getElementById("file-input");
-const chatTitle     = document.getElementById("chat-title");
-const statusDot     = document.getElementById("status-dot");
+const docList = document.getElementById("doc-list");
+const chatMessages = document.getElementById("chat-messages");
+const chatInput = document.getElementById("chat-input");
+const sendBtn = document.getElementById("send-btn");
+const uploadBtn = document.getElementById("upload-btn");
+const fileInput = document.getElementById("file-input");
+const chatTitle = document.getElementById("chat-title");
+const statusDot = document.getElementById("status-dot");
 const apiStatusText = document.getElementById("api-status-text");
-const toastCont     = document.getElementById("toast-container");
+const toastCont = document.getElementById("toast-container");
 
 // ── Interaction Logic ──────────────────────────────────────────────────────────
 chatInput.addEventListener("input", () => {
@@ -38,16 +38,16 @@ chatInput.addEventListener("input", () => {
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function toast(message, type = "info") {
-  const el = document.createElement("div");
-  el.className = `flex items-center gap-4 px-6 py-4 bg-[#111111] border border-white/5 rounded-2xl shadow-2xl animate-slide-in mb-3 relative overflow-hidden`;
-  
-  const icon = type === "success" 
-    ? `<iconify-icon icon="solar:check-circle-bold" class="text-emerald-500 text-xl"></iconify-icon>` 
-    : type === "error" 
-    ? `<iconify-icon icon="solar:danger-circle-bold" class="text-red-500 text-xl"></iconify-icon>` 
-    : `<iconify-icon icon="solar:info-circle-bold" class="text-indigo-500 text-xl"></iconify-icon>`;
+    const el = document.createElement("div");
+    el.className = `flex items-center gap-4 px-6 py-4 bg-[#111111] border border-white/5 rounded-2xl shadow-2xl animate-slide-in mb-3 relative overflow-hidden`;
 
-  el.innerHTML = `
+    const icon = type === "success"
+        ? `<iconify-icon icon="solar:check-circle-bold" class="text-emerald-500 text-xl"></iconify-icon>`
+        : type === "error"
+            ? `<iconify-icon icon="solar:danger-circle-bold" class="text-red-500 text-xl"></iconify-icon>`
+            : `<iconify-icon icon="solar:info-circle-bold" class="text-indigo-500 text-xl"></iconify-icon>`;
+
+    el.innerHTML = `
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-${type === 'success' ? 'emerald' : type === 'error' ? 'red' : 'indigo'}-500 shadow-[0_0_8px_${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#6366f1'}]"></div>
     ${icon}
     <div class="flex flex-col">
@@ -55,43 +55,43 @@ function toast(message, type = "info") {
         <span class="text-[11px] font-bold text-white/80">${message}</span>
     </div>
   `;
-  toastCont.appendChild(el);
-  setTimeout(() => {
-      el.style.opacity = "0";
-      setTimeout(() => el.remove(), 400);
-  }, 4000);
+    toastCont.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = "0";
+        setTimeout(() => el.remove(), 400);
+    }, 4000);
 }
 
 // ── Health ───────────────────────────────────────────────────────────────────
 async function checkHealth() {
-  try {
-    const r = await fetch(`${API}/health`);
-    if (r.ok) {
-      statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
-      apiStatusText.textContent = "Assistant Online";
-      apiStatusText.className = "text-[10px] font-bold text-emerald-500 uppercase tracking-widest";
-    } else throw new Error();
-  } catch {
-    statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
-    apiStatusText.textContent = "Assistant Offline";
-    apiStatusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
-  }
+    try {
+        const r = await fetch(`${API}/health`);
+        if (r.ok) {
+            statusDot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+            apiStatusText.textContent = "Assistant Online";
+            apiStatusText.className = "text-[10px] font-bold text-emerald-500 uppercase tracking-widest";
+        } else throw new Error();
+    } catch {
+        statusDot.className = "w-1.5 h-1.5 rounded-full bg-red-400";
+        apiStatusText.textContent = "Assistant Offline";
+        apiStatusText.className = "text-[10px] font-bold text-red-500 uppercase tracking-widest";
+    }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 function appendMessage(content, role = "assistant") {
-  const wrap = document.createElement("div");
-  wrap.className = `flex ${role === 'user' ? 'justify-end' : 'items-start'} gap-4 max-w-[85%] animate-slide-in ${role === 'user' ? 'ml-auto' : ''}`;
+    const wrap = document.createElement("div");
+    wrap.className = `flex ${role === 'user' ? 'justify-end' : 'items-start'} gap-4 max-w-[85%] animate-slide-in ${role === 'user' ? 'ml-auto' : ''}`;
 
-  const iconHtml = role === 'assistant' 
-    ? `<div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
+    const iconHtml = role === 'assistant'
+        ? `<div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/20">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
       </div>`
-    : `<div class="w-9 h-9 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-500 shrink-0">
+        : `<div class="w-9 h-9 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-500 shrink-0">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
       </div>`;
 
-  wrap.innerHTML = role === 'assistant' ? `
+    wrap.innerHTML = role === 'assistant' ? `
     ${iconHtml}
     <div class="bubble-assistant p-4 text-sm leading-relaxed">${content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>")}</div>
   ` : `
@@ -99,9 +99,9 @@ function appendMessage(content, role = "assistant") {
     ${iconHtml}
   `;
 
-  chatMessages.appendChild(wrap);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-  return wrap;
+    chatMessages.appendChild(wrap);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return wrap;
 }
 
 function appendThinking() {
@@ -114,9 +114,21 @@ function appendThinking() {
 function formatExtractionCard(record) {
     const ex = record.extracted || {};
 
+    const imageSection = record.image_data 
+        ? `<div class="mb-5 rounded-2xl overflow-hidden border border-white/5 cursor-zoom-in group/img relative">
+             <img src="${record.image_data}" class="w-full h-auto max-h-64 object-cover transition-transform duration-500 group-hover/img:scale-105" onclick="window.open('${record.image_data}', '_blank')" />
+             <div class="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                <iconify-icon icon="solar:magnifer-zoom-in-bold" class="text-white text-2xl"></iconify-icon>
+             </div>
+           </div>` 
+        : '';
+
     return `
         <div class="space-y-6" data-doc-id="${record.doc_id}">
             <p>I've extracted the core fields from **${record.filename || 'your document'}**. Here is the report:</p>
+            
+            ${imageSection}
+
             <div class="bg-gray-950/50 border border-white/5 rounded-2xl p-5 space-y-3 font-inter">
                 <div class="flex items-center justify-between pb-3 border-b border-white/[0.03]">
                     <span class="text-[9px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2">
@@ -148,13 +160,13 @@ function formatExtractionCard(record) {
 
 // ── App Logic ─────────────────────────────────────────────────────────────────
 async function loadDocuments() {
-  try {
-    const r = await fetch(`${API}/documents`);
-    if (!r.ok) return;
-    const data = await r.json();
-    documents = data.documents || [];
-    renderDocList();
-  } catch { /* silence */ }
+    try {
+        const r = await fetch(`${API}/documents`);
+        if (!r.ok) return;
+        const data = await r.json();
+        documents = data.documents || [];
+        renderDocList();
+    } catch { /* silence */ }
 }
 
 function renderDocList() {
@@ -173,7 +185,7 @@ function renderDocList() {
     });
 
     const sessionList = Object.values(sessions).sort((a, b) => new Date(b.latest) - new Date(a.latest));
-    
+
     const overviewHeader = document.querySelector('.text-\\[10px\\].font-bold.text-gray-700.uppercase.tracking-widest');
     if (overviewHeader) {
         overviewHeader.textContent = `Chat History (${sessionList.length})`;
@@ -189,9 +201,9 @@ function renderDocList() {
         const active = sn.id === sessionId;
         const item = document.createElement("div");
         item.className = `group flex items-center justify-between gap-3 px-5 py-3 rounded-lg cursor-pointer transition-all border-r-2 ${active ? 'bg-white/[0.03] text-white border-indigo-600' : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.01] border-transparent'}`;
-        
+
         const label = sn.docs[0]?.filename || 'Session Analysis';
-        const docCount = sn.docs.length > 1 ? `<span class="ml-1 text-[9px] opacity-40">+${sn.docs.length-1}</span>` : '';
+        const docCount = sn.docs.length > 1 ? `<span class="ml-1 text-[9px] opacity-40">+${sn.docs.length - 1}</span>` : '';
 
         item.innerHTML = `
             <div class="flex items-center gap-3 truncate flex-1">
@@ -219,13 +231,13 @@ function renderDocList() {
 
 async function deleteSession(sid) {
     if (!confirm("Are you sure you want to delete this entire session and all its documents?")) return;
-    
+
     try {
         const sessionDocs = documents.filter(d => (d.session_id || 'default_session') === sid);
-        
+
         // Delete all docs in this session
         await Promise.all(sessionDocs.map(d => fetch(`${API}/documents/${d.doc_id}`, { method: "DELETE" })));
-        
+
         toast("Session removed", "success");
         if (sessionId === sid) {
             resetChat();
@@ -238,17 +250,17 @@ async function deleteSession(sid) {
 function switchSession(sn) {
     sessionId = sn.id;
     localStorage.setItem("receipt_ia_sid", sessionId);
-    
+
     chatMessages.innerHTML = "";
     chatTitle.textContent = "Chat Session Reloaded";
-    
+
     // Rebuild chat from session documents
     sn.docs.forEach(doc => {
         appendMessage(formatExtractionCard(doc), "assistant");
     });
-    
+
     appendMessage(`**Session Summary**: I've reloaded **${sn.docs.length}** document(s) for this conversation. You can continue asking questions about any of them.`, "assistant");
-    
+
     renderDocList();
 }
 
@@ -263,7 +275,7 @@ function openConversation(record) {
         appendMessage(formatExtractionCard(record), "assistant");
         appendMessage(`Loaded context for **${record.filename}**. Asking about "this document" will now focus on its data.`, "assistant");
     }
-    
+
     selectedDocId = record.doc_id;
     chatTitle.textContent = `${record.filename || 'Session'} Context`;
     renderDocList();
@@ -296,7 +308,7 @@ async function deleteDocument(docId) {
 async function doUpload(file) {
     toast(`Syncing ${file.name}`, "info");
     const thinking = appendThinking();
-    
+
     try {
         const form = new FormData();
         form.append("file", file);
@@ -319,7 +331,7 @@ async function doUpload(file) {
         // Instead of opening and clearing, we append and focus
         appendMessage(formatExtractionCard(data), "assistant");
         appendMessage(`Synchronized **${data.filename}**. It has been added to your session context.`, "assistant");
-        
+
         selectedDocId = data.doc_id;
         chatTitle.textContent = `${data.filename} Context`;
         renderDocList();
@@ -337,7 +349,7 @@ async function sendQuestion() {
     appendMessage(q, "user");
     chatInput.value = "";
     sendBtn.disabled = true;
-    
+
     const thinking = appendThinking();
     try {
         const body = { question: q };
@@ -345,7 +357,7 @@ async function sendQuestion() {
 
         const r = await fetch(`${API}/query`, {
             method: "POST",
-            headers: {"Content-Type": "application/json"},
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
 
@@ -376,7 +388,7 @@ chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendQuestion();
 });
 
-const newChatBtn    = document.getElementById("new-chat-btn");
+const newChatBtn = document.getElementById("new-chat-btn");
 
 function resetChat() {
     sessionId = uuidv4();
@@ -411,7 +423,7 @@ if (realViewDocsBtn) {
             toast("No documents in session", "info");
             return;
         }
-        
+
         const list = activeDocs.map(d => `• **${d.filename}** (ID: ${d.doc_id})`).join("\n");
         appendMessage(`### 📂 Current Session Documents\n\n${list}`, "assistant");
     });
@@ -425,13 +437,13 @@ if (viewJsonBtn) {
             toast("No structured data available", "info");
             return;
         }
-        
+
         const json = JSON.stringify(activeDocs.map(d => ({
             id: d.doc_id,
             file: d.filename,
             extracted: d.extracted
         })), null, 4);
-        
+
         appendMessage(`### 🤖 Structured JSON Data\n\n\`\`\`json\n${json}\n\`\`\``, "assistant");
     });
 }

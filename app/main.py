@@ -174,11 +174,17 @@ async def extract_from_upload(
         filename = file.filename
         content = await file.read()
         
-        # Save image to disk
+        # Save image to disk (for temporary local caching)
         ext = Path(filename).suffix if filename else ".jpg"
         file_path = UPLOADS_DIR / f"{doc_id}{ext}"
         with open(file_path, "wb") as f:
             f.write(content)
+
+        # Prepare for DB storage (Base64)
+        import base64
+        image_b64 = base64.b64encode(content).decode("utf-8")
+        file_type = file.content_type or "image/jpeg"
+        image_data = f"data:{file_type};base64,{image_b64}"
 
 
         # Attempt OCR via pytesseract if it's an image
@@ -234,6 +240,10 @@ async def extract_from_upload(
 
     # ── Extract fields ──
     extracted = extractor.extract(ocr_text)
+
+    # Include image for storage
+    if file is not None:
+        extracted["image_data"] = image_data
 
     # ── Persist ──
     record = storage.save_record(extracted, doc_id=doc_id, filename=filename, session_id=session_id)

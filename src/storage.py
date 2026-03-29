@@ -90,6 +90,7 @@ class RecordStorage:
             },
             "raw_text": extracted.get("raw_text", ""),
             "method": extracted.get("method", "unknown"),
+            "image_data": extracted.get("image_data"), # Optional Base64 or URL
         }
 
         self._cache[doc_id] = record
@@ -161,6 +162,7 @@ class MongoStorage:
             },
             "raw_text": extracted.get("raw_text", ""),
             "method": extracted.get("method", "mongo"),
+            "image_data": extracted.get("image_data"), # Optional Base64
         }
         self.collection.update_one({"doc_id": doc_id}, {"$set": record}, upsert=True)
         return record
