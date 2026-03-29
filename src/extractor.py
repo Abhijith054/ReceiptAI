@@ -1,6 +1,7 @@
 """
-Information extractor: uses Groq (LLM), fine-tuned DistilBERT, or Regex 
-to extract key receipt fields from OCR text.
+Receipt Intelligence Engine: 
+1. Extraction: Uses your FINE-TUNED DistilBERT model (trained on CORD).
+2. Chat: Uses LLM (Groq) for high-reasoning natural language queries.
 """
 
 import json
@@ -17,47 +18,11 @@ from src.data_processor import (
 MODEL_DIR = "models/receipt_ner"
 
 
-def groq_extract(text: str, api_key: str) -> Optional[Dict]:
-    """Use Groq LLM to extract structured fields from receipt text."""
-    try:
-        from groq import Groq
-        
-        prompt = f"""Extract structured data from this receipt OCR text.
-Return ONLY a valid JSON object with the following keys:
-- vendor_name (string or null)
-- total_amount (string or null, include currency if found)
-- date (string or null, format YYYY-MM-DD)
-- receipt_id (string or null)
-
-OCR Text:
-{text}
-
-JSON:"""
-
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=256,
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        data = json.loads(response.choices[0].message.content)
-        return data
-
-    except Exception as e:
-        print(f"[LLM Extractor] Error: {e}")
-        return None
-
-
 class ReceiptExtractor:
     """
-    Extracts structured information from receipt text.
-
-    Priority:
-    1. Groq LLM (if API key provided) -> HIGHEST ACCURACY
-    2. Fine-tuned DistilBERT (if model exists)
-    3. Regex fallback (always available)
+    Hybrid Intelligent Extractor.
+    - Uses local fine-tuned BERT for initial data retrieval.
+    - Uses Llama-3 (Groq) for advanced chat reasoning.
     """
 
     def __init__(self, model_dir: str = MODEL_DIR):
@@ -66,16 +31,10 @@ class ReceiptExtractor:
         self._tokenizer = None
         self._model_loaded = False
         self._pipeline = None
-        self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
-        
-        # Check if we should use LLM
-        self.use_llm = bool(self.groq_api_key and "YOUR_GROQ" not in self.groq_api_key.upper())
-        
-        if not self.use_llm:
-            self._try_load_model()
+        self._try_load_model()
 
     def _try_load_model(self):
-        """Attempt to load the fine-tuned model (silent if not available)."""
+        """Load your fine-tuned DistilBERT model from the models/ folder."""
         try:
             from transformers import (
                 AutoTokenizer,
@@ -85,12 +44,13 @@ class ReceiptExtractor:
 
             model_path = Path(self.model_dir)
             if not model_path.exists() or not (model_path / "config.json").exists():
+                print(f"[Extractor] Warning: Fine-tuned model not found at {self.model_dir}.")
                 return
 
-            print(f"[Extractor] Loading fine-tuned model from {self.model_dir}…")
+            print(f"[Extractor] Initializing Fine-tuned NER model…")
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
             
-            # Hotfix: DistilBERT does not expect token_type_ids
+            # Hotfix: Ensure token_type_ids are not enabled for DistilBERT
             if self._tokenizer and hasattr(self._tokenizer, "model_input_names"):
                 if "token_type_ids" in self._tokenizer.model_input_names:
                     self._tokenizer.model_input_names.remove("token_type_ids")
@@ -103,49 +63,74 @@ class ReceiptExtractor:
                 aggregation_strategy="simple",
             )
             self._model_loaded = True
-            print("[Extractor] Local model loaded ✓")
+            print("[Extractor] Trained Model System: ONLINE ✓")
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Extractor] Load failed: {e}")
+
+    @staticmethod
+    def _clean_ner_val(text: str) -> str:
+        """Sanitize word-piece remnants and artifacts from BERT spans."""
+        return text.replace(" ##", "").strip()
+
+    def _format_ner_results(self, ner_results: List[Dict]) -> Dict:
+        """Convert BERT spans into structured receipt fields."""
+        fields = {"total_amount": None, "date": None, "vendor_name": None, "receipt_id": None}
+        
+        for span in ner_results:
+            group = span.get("entity_group", "").upper()
+            word = self._clean_ner_val(span.get("word", ""))
+            
+            if not word: continue
+            
+            if "TOTAL" in group:
+                fields["total_amount"] = word
+            elif "DATE" in group:
+                fields["date"] = word
+            elif "VENDOR" in group:
+                fields["vendor_name"] = word
+            elif "ID" in group:
+                fields["receipt_id"] = word
+        return fields
 
     def extract(self, text: str) -> Dict:
         """
-        Extract key fields from receipt OCR text.
+        Primary Extraction Loop:
+        1. Trained DistilBERT Model (Primary Intelligence)
+        2. Regex (Precision Fallback)
         """
-        if not text or not text.strip():
-            return {
-                "total_amount": None,
-                "date": None,
-                "vendor_name": None,
-                "receipt_id": None,
-                "raw_text": text,
-                "method": "empty",
-            }
+        if not text:
+            return {"total_amount": None, "date": None, "vendor_name": None, "receipt_id": None, "method": "empty"}
 
-        # Priority 1: High-Performance LLM (Groq)
-        if self.use_llm:
-            llm_result = groq_extract(text, self.groq_api_key)
-            if llm_result:
-                llm_result["raw_text"] = text
-                llm_result["method"] = "llama-3-70b (LLM)"
-                return llm_result
-
-        # Priority 2: Local Fine-tuned Model
+        # Phase 1: Use your Trained Model
+        res = {}
+        method = "regex"
+        
         if self._model_loaded:
             try:
-                ner_results = self._pipeline(text[:512])
-                # ... simple grouping logic omitted for brevity, fallback to regex
+                ner_out = self._pipeline(text[:512]) # limit context window
+                res = self._format_ner_results(ner_out)
+                method = "Trained DistilBERT (NER)"
             except Exception:
                 pass
 
-        # Priority 3: Regex
-        fields = regex_extract(text)
-        fields["raw_text"] = text
-        fields["method"] = "regex"
-        return fields
+        # Phase 2: Precision verification with internal patterns
+        fallback = regex_extract(text)
+        
+        # Merge results: favor model for entities, regex for math-heavy fields
+        final = {
+            "vendor_name": res.get("vendor_name") or fallback.get("vendor_name"),
+            "date": res.get("date") or fallback.get("date"),
+            "total_amount": res.get("total_amount") or fallback.get("total_amount"),
+            "receipt_id": res.get("receipt_id") or fallback.get("receipt_id"),
+            "raw_text": text,
+            "method": method
+        }
+        
+        return final
 
 
-# Singleton instance
+# Singleton
 _extractor_instance: Optional[ReceiptExtractor] = None
 
 def get_extractor() -> ReceiptExtractor:

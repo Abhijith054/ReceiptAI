@@ -6,10 +6,10 @@ venv/
 .env
 
 # Data & Models
-data/cord_dataset/
+# data/cord_dataset/
 data/uploads/
 data/*.jsonl
-models/receipt_ner/
+# models/receipt_ner/
 models/llama3_qlora/
 
 # IDE & OS
@@ -17,3 +17,4 @@ models/llama3_qlora/
 .vscode/
 .pytest_cache/
 .ipynb_checkpoints/
+models/receipt_ner/checkpoint-*
