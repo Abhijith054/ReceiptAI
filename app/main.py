@@ -221,16 +221,18 @@ def send_otp(req: EmailRequest):
     text_version = f"Your ReceiptAI verification code is: {otp}\nExpires in 5 minutes."
 
     # ── Attempt 1: Resend API (works on Render - uses HTTPS, not SMTP) ──────────
+    resend_error = None
     if resend_key:
         try:
             import requests as _req
+            print(f"[AUTH] Trying Resend API (key starts with: {resend_key[:8]}...)")
             resp = _req.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                 json={
                     "from": "ReceiptAI <onboarding@resend.dev>",
                     "to": [email],
-                    "subject": "ReceiptAI – Your Verification Code",
+                    "subject": "ReceiptAI - Your Verification Code",
                     "html": html_version,
                     "text": text_version,
                 },
@@ -240,15 +242,20 @@ def send_otp(req: EmailRequest):
                 print(f"[AUTH] OTP sent via Resend to {email}")
                 return {"message": "Verification code sent"}
             else:
-                print(f"[AUTH] Resend API error: {resp.status_code} {resp.text}")
+                resend_error = f"Resend {resp.status_code}: {resp.text}"
+                print(f"[AUTH] Resend API error: {resend_error}")
         except Exception as e:
+            resend_error = str(e)
             print(f"[AUTH] Resend request failed: {e}")
+    else:
+        resend_error = "RESEND_API_KEY not set in environment"
+        print(f"[AUTH] {resend_error}")
 
     # ── Attempt 2: Gmail SMTP (may be blocked on Render port 587) ───────────────
     if GMAIL_USER and GMAIL_APP_PASSWORD:
         try:
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = "ReceiptAI – Your Verification Code"
+            msg["Subject"] = "ReceiptAI - Your Verification Code"
             msg["From"] = GMAIL_USER
             msg["To"] = email
             msg.attach(MIMEText(text_version, "plain"))
@@ -262,11 +269,11 @@ def send_otp(req: EmailRequest):
         except Exception as e:
             print(f"[AUTH] Gmail SMTP failed: {e}")
 
-    # ── No working delivery method configured ────────────────────────────────────
-    print(f"[AUTH] CRITICAL: No email credentials configured. OTP for {email}: {otp}")
+    # ── No working delivery method ───────────────────────────────────────────────
+    print(f"[AUTH] All delivery methods failed. OTP for {email}: {otp}")
     raise HTTPException(
         status_code=503,
-        detail="Email delivery is not configured on this server. Please contact the administrator."
+        detail=f"Email delivery failed. Resend error: {resend_error}"
     )
 
 @app.post("/verify-otp", tags=["Auth"])
