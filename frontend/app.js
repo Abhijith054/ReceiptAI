@@ -438,11 +438,13 @@ sendOtpBtn.addEventListener("click", async () => {
             loginEmailView.classList.add("hidden");
             loginOtpView.classList.remove("hidden");
             
-            if (data.dev && data.otp) {
-                toast(`Dev Mode / Render Fallback: Code is ${data.otp}`, "success");
-                loginOtpInput.value = data.otp; // Auto-fill for convenience
+            if (data.dev) {
+                // Email delivery failed on server - do NOT auto-fill, show error
+                showLoginError("Email delivery failed. Check server email configuration.");
+                loginOtpView.classList.add("hidden");
+                loginEmailView.classList.remove("hidden");
             } else {
-                toast("Verification code sent", "success");
+                toast("Verification code sent to " + email, "success");
             }
         } else {
             const data = await r.json();

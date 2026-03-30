@@ -172,109 +172,102 @@ async def health():
 def send_otp(req: EmailRequest):
     storage = get_storage()
     email = req.email.lower().strip()
-    
+
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Invalid email address")
 
     otp = f"{random.randint(100000, 999999)}"
     otp_hash = hashlib.sha256(otp.encode()).hexdigest()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    
     storage.save_otp(email, otp_hash, expires_at)
-    
-    resend_key = os.environ.get("RESEND_API_KEY")
-    if not resend_key and (not GMAIL_USER or not GMAIL_APP_PASSWORD):
-        print(f"[AUTH] NO CREDENTIALS. OTP FOR {email}: {otp}")
-        return {"message": "OTP sent (dev mode)", "dev": True, "otp": otp}
 
-    try:
-        # SMTP email sending
-        msg = MIMEMultipart("alternative")
-        msg['Subject'] = 'ReceiptAI Verification Code'
-        msg['From'] = GMAIL_USER
-        msg['To'] = email
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
 
-        text_version = f"Your ReceiptAI verification code is: {otp}\nExpires in 5 minutes."
-        html_version = f"""
+    html_version = f"""
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; background-color: #000000; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #000000; padding: 40px 20px;">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#000;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellspacing="0" cellpadding="0" style="background:#000;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="100%" cellspacing="0" cellpadding="0" style="max-width:500px;background:#121212;border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,0.05);">
         <tr>
-            <td align="center">
-                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 500px; background-color: #121212; border-radius: 24px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);">
-                    <!-- Header -->
-                    <tr>
-                        <td align="center" style="padding: 40px 40px 20px 40px; background: linear-gradient(180deg, #1a1a1a 0%, #121212 100%);">
-                            <h1 style="margin: 0; font-size: 24px; font-weight: 900; color: #ffffff; letter-spacing: -0.02em;">Receipt<span style="color: #6366f1;">AI</span></h1>
-                            <p style="margin: 8px 0 0 0; font-size: 10px; font-weight: 800; color: #4b5563; text-transform: uppercase; letter-spacing: 0.2em;">Email Verification</p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Main Body -->
-                    <tr>
-                        <td align="center" style="padding: 20px 40px 40px 40px;">
-                            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: -0.01em;">Verification OPT</h2>
-                            <p style="margin: 12px 0 32px 0; font-size: 13px; line-height: 1.6; color: #9ca3af;">Use the verification code below to complete your login.</p>
-                            
-                            <!-- OTP Box -->
-                            <div style="background-color: #1e1e1e; border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.05); text-align: center;">
-                                <div style="font-size: 36px; font-weight: 900; color: #ffffff; letter-spacing: 0.5em; margin-right: -0.5em;">{otp}</div>
-                            </div>
-                            
-                            <p style="margin: 32px 0 0 0; font-size: 11px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: 0.05em;">This code will expire in <span style="color: #ef4444;">5 minutes</span></p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td align="center" style="padding: 0 40px 40px 40px; border-top: 1px solid rgba(255,255,255,0.03);">
-                            <p style="margin: 24px 0 0 0; font-size: 11px; line-height: 1.5; color: #374151;">If you didn't request this code, you can safely ignore this email.</p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
+          <td align="center" style="padding:40px 40px 20px;background:linear-gradient(180deg,#1a1a1a 0%,#121212 100%)">
+            <h1 style="margin:0;font-size:24px;font-weight:900;color:#fff;letter-spacing:-0.02em">Receipt<span style="color:#6366f1">AI</span></h1>
+            <p style="margin:8px 0 0;font-size:10px;font-weight:800;color:#4b5563;text-transform:uppercase;letter-spacing:.2em">Email Verification</p>
+          </td>
         </tr>
-    </table>
+        <tr>
+          <td align="center" style="padding:20px 40px 40px">
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:#fff">Verification Code</h2>
+            <p style="margin:12px 0 32px;font-size:13px;line-height:1.6;color:#9ca3af">Use the code below to complete your login. It expires in 5 minutes.</p>
+            <div style="background:#1e1e1e;border-radius:16px;padding:24px;border:1px solid rgba(255,255,255,0.05);text-align:center">
+              <div style="font-size:36px;font-weight:900;color:#fff;letter-spacing:.5em;margin-right:-.5em">{otp}</div>
+            </div>
+            <p style="margin:32px 0 0;font-size:11px;font-weight:600;color:#4b5563;text-transform:uppercase;letter-spacing:.05em">Expires in <span style="color:#ef4444">5 minutes</span></p>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:0 40px 40px;border-top:1px solid rgba(255,255,255,0.03)">
+            <p style="margin:24px 0 0;font-size:11px;line-height:1.5;color:#374151">If you didn't request this, you can safely ignore this email.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>
 """
-        msg.attach(MIMEText(text_version, "plain"))
-        msg.attach(MIMEText(html_version, "html"))
-        
-        if resend_key:
-            import requests
-            response = requests.post(
+    text_version = f"Your ReceiptAI verification code is: {otp}\nExpires in 5 minutes."
+
+    # ── Attempt 1: Resend API (works on Render - uses HTTPS, not SMTP) ──────────
+    if resend_key:
+        try:
+            import requests as _req
+            resp = _req.post(
                 "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {resend_key}",
-                    "Content-Type": "application/json"
-                },
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                 json={
                     "from": "ReceiptAI <onboarding@resend.dev>",
                     "to": [email],
-                    "subject": "ReceiptAI Verification Code",
-                    "html": html_version
-                }
+                    "subject": "ReceiptAI – Your Verification Code",
+                    "html": html_version,
+                    "text": text_version,
+                },
+                timeout=10,
             )
-            if not response.ok:
-                raise Exception(f"Resend API Error: {response.text}")
-        else:
+            if resp.ok:
+                print(f"[AUTH] OTP sent via Resend to {email}")
+                return {"message": "Verification code sent"}
+            else:
+                print(f"[AUTH] Resend API error: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"[AUTH] Resend request failed: {e}")
+
+    # ── Attempt 2: Gmail SMTP (may be blocked on Render port 587) ───────────────
+    if GMAIL_USER and GMAIL_APP_PASSWORD:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = "ReceiptAI – Your Verification Code"
+            msg["From"] = GMAIL_USER
+            msg["To"] = email
+            msg.attach(MIMEText(text_version, "plain"))
+            msg.attach(MIMEText(html_version, "html"))
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
                 server.starttls()
                 server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
                 server.send_message(msg)
-            
-        return {"message": "OTP sent successfully"}
-    except Exception as e:
-        print(f"[AUTH] SMTP Error: {e}")
-        print(f"[AUTH] Render likely blocks outbound SMTP (Port 587). FALLBACK OTP FOR {email}: {otp}")
-        # Return 200 with the OTP so the frontend can still proceed during testing
-        return {"message": "OTP logged in console due to server block", "dev": True, "otp": otp}
+            print(f"[AUTH] OTP sent via Gmail SMTP to {email}")
+            return {"message": "Verification code sent"}
+        except Exception as e:
+            print(f"[AUTH] Gmail SMTP failed: {e}")
+
+    # ── No working delivery method configured ────────────────────────────────────
+    print(f"[AUTH] CRITICAL: No email credentials configured. OTP for {email}: {otp}")
+    raise HTTPException(
+        status_code=503,
+        detail="Email delivery is not configured on this server. Please contact the administrator."
+    )
 
 @app.post("/verify-otp", tags=["Auth"])
 def verify_otp(req: VerifyRequest):
