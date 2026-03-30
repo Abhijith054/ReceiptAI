@@ -6,8 +6,12 @@
 // Use window.location.origin to handle both localhost and production (Vercel) automatically
 const API = window.location.origin;
 
+// ── Auth State ────────────────────────────────────────────────────────────────
+let authToken = localStorage.getItem("receipt_ia_token");
+let userEmail = localStorage.getItem("receipt_ia_email");
+
 // ── State ─────────────────────────────────────────────────────────────────────
-let sessionId = "guest";
+let sessionId = userEmail || "guest";
 let selectedDocId = null;
 let documents = [];
 
@@ -42,7 +46,13 @@ const reExtractBtn = document.getElementById("re-extract-btn");
 const viewJsonHeader = document.getElementById("view-json-header");
 const headerUploadBtn = document.getElementById("header-upload-btn");
 
-// Removed Auth DOM Refs
+// ── DOM Refs (Auth) ──────────────────────────────────────────────────────────
+const loginOverlay = document.getElementById("login-overlay");
+const loginEmailView = document.getElementById("login-email-view");
+const loginEmailInput = document.getElementById("login-email");
+const sendOtpBtn = document.getElementById("send-otp-btn");
+const loginError = document.getElementById("login-error");
+const logoutBtn = document.getElementById("logout-btn");
 
 // ── Interaction Logic ──────────────────────────────────────────────────────────
 chatInput.addEventListener("input", () => {
@@ -367,15 +377,74 @@ reExtractBtn.addEventListener("click", () => {
     }
 });
 
+// ── Auth Logic ────────────────────────────────────────────────────────────────
+async function initAuth() {
+    if (!authToken) {
+        showLogin();
+    } else {
+        hideLogin();
+        // Update user profile in sidebar
+        const emailSpan = document.getElementById("sidebar-user-email");
+        const avatarChar = document.getElementById("avatar-char");
+        if (emailSpan && userEmail) emailSpan.textContent = userEmail;
+        if (avatarChar && userEmail) avatarChar.textContent = userEmail.charAt(0).toUpperCase();
+    }
+}
+
+function showLogin() {
+    loginOverlay.classList.remove("hidden");
+    loginEmailView.classList.remove("hidden");
+}
+
+function hideLogin() {
+    loginOverlay.classList.add("hidden");
+}
+
+function logout() {
+    localStorage.removeItem("receipt_ia_token");
+    localStorage.removeItem("receipt_ia_email");
+    authToken = null;
+    userEmail = null;
+    location.reload();
+}
+
+sendOtpBtn.addEventListener("click", async () => {
+    const email = loginEmailInput.value.trim();
+    if (!email || !email.includes("@")) {
+        showLoginError("Please enter a valid email");
+        return;
+    }
+
+    sendOtpBtn.disabled = true;
+    sendOtpBtn.textContent = "Entering...";
+    loginError.classList.add("hidden");
+
+    // Email-only login logic
+    authToken = "email-auth";
+    userEmail = email;
+    localStorage.setItem("receipt_ia_token", authToken);
+    localStorage.setItem("receipt_ia_email", userEmail);
+    hideLogin();
+    toast("Access Granted", "success");
+    location.reload();
+});
+
+if (logoutBtn) {
+    logoutBtn.addEventListener("click", logout);
+}
+
+function showLoginError(msg) {
+    loginError.textContent = msg;
+    loginError.classList.remove("hidden");
+    toast(msg, "error");
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
-    // Update user profile in sidebar (defaulting to guest)
-    const emailSpan = document.getElementById("sidebar-user-email");
-    const avatarChar = document.getElementById("avatar-char");
-    if (emailSpan) emailSpan.textContent = "guest@receiptai.com";
-    if (avatarChar) avatarChar.textContent = "G";
-
-    await checkHealth();
-    await loadDocuments();
-    setInterval(checkHealth, 15000);
+    await initAuth();
+    if (authToken) {
+        await checkHealth();
+        await loadDocuments();
+        setInterval(checkHealth, 15000);
+    }
 })();
