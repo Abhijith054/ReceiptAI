@@ -294,6 +294,14 @@ async function deleteDocument(docId) {
 }
 
 async function doUpload(file) {
+    // Instant UI Preview before server sync
+    const previewUrl = URL.createObjectURL(file);
+    activeImage.src = previewUrl;
+    previewPlaceholder.classList.add("hidden");
+    activeImageWrapper.classList.remove("hidden");
+    activeImage.classList.remove("opacity-0");
+    activeImage.classList.add("opacity-100");
+
     toast(`Syncing ${file.name}`, "info");
     showLoadingPanel();
 
