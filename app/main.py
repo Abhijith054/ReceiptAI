@@ -417,15 +417,9 @@ def extract_from_upload(
         extracted["image_url"] = f"/uploads/{doc_id}{ext}"
 
     # ── Persist ──
-    # Create copy for storage without heavy Base64 data
-    storage_copy = extracted.copy()
-    storage_copy.pop("image_data", None)
-    
-    record = storage.save_record(storage_copy, doc_id=doc_id, filename=filename, session_id=session_id)
+    record = storage.save_record(extracted, doc_id=doc_id, filename=filename, session_id=session_id)
     
     # Return the full record for consistency and to ensure image_data is top-level for JS
-    if file is not None:
-        record["image_data"] = image_data
     return record
 
 

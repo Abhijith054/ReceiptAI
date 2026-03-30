@@ -38,43 +38,48 @@ class ReceiptExtractor:
             print("[Extractor] Intelligence Mode: LOCAL (BERT/Regex Mode)")
 
     def _try_load_model(self):
-        """Load your fine-tuned DistilBERT model. Lazy-called if needed."""
+        """Load fine-tuned DistilBERT model. Lazy-called only when available."""
         if self._model_loaded: return
-        if self.skip_local: return
+        if self.skip_local:
+            print("[Extractor] Local model skipped (SKIP_LOCAL_MODEL=1). Using Groq + rules.")
+            return
 
+        # Guard: torch/transformers may not be installed (e.g. HF free tier)
         try:
             import torch
             from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
+        except ImportError:
+            print("[Extractor] torch/transformers not installed. Using Groq + rule-based extraction.")
+            self.skip_local = True
+            return
 
+        try:
             model_path = Path(self.model_dir)
             if not model_path.exists() or not (model_path / "config.json").exists():
-                print(f"[Extractor] Model directory {model_path} missing. Falling back to rules.")
+                print(f"[Extractor] Model directory '{model_path}' not found. Using Groq + rules.")
+                self.skip_local = True
                 return
 
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
-            
-            # Load basic model with explicit low CPU memory flags
             raw_model = AutoModelForTokenClassification.from_pretrained(
-                self.model_dir, 
-                low_cpu_mem_usage=True
+                self.model_dir,
+                low_cpu_mem_usage=True,
             )
-            
-            # Apply PyTorch 8-bit Dynamic Quantization (Shrinks RAM by 4x, speeds up CPU inference)
             self._model = torch.quantization.quantize_dynamic(
                 raw_model, {torch.nn.Linear}, dtype=torch.qint8
             )
-            
             self._pipeline = pipeline(
-                "ner", 
-                model=self._model, 
-                tokenizer=self._tokenizer, 
+                "ner",
+                model=self._model,
+                tokenizer=self._tokenizer,
                 aggregation_strategy="simple",
-                device=-1 # Force CPU execution
+                device=-1,  # CPU only
             )
             self._model_loaded = True
-            print(f"[Extractor] BERT Model System: ONLINE ✓")
+            print("[Extractor] BERT Model System: ONLINE ✓")
         except Exception as e:
-            print(f"[Extractor] Error loading local model: {e}")
+            print(f"[Extractor] Error loading local model: {e}. Falling back to rules.")
+            self.skip_local = True
 
     def _extract_with_groq(self, text: str) -> Optional[Dict]:
         """Use High-Performance Groq LLM (Llama-3) for extraction fallback (Rule 5)."""
@@ -210,5 +215,4 @@ def get_extractor() -> ReceiptExtractor:
     global _extractor_instance
     if _extractor_instance is None:
         _extractor_instance = ReceiptExtractor()
-    return _extractor_instance
     return _extractor_instance
