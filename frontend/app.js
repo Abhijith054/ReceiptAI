@@ -6,12 +6,8 @@
 // Use window.location.origin to handle both localhost and production (Vercel) automatically
 const API = window.location.origin;
 
-// ── Auth State ────────────────────────────────────────────────────────────────
-let authToken = localStorage.getItem("receipt_ia_token");
-let userEmail = localStorage.getItem("receipt_ia_email");
-
 // ── State ─────────────────────────────────────────────────────────────────────
-let sessionId = userEmail || "guest";
+let sessionId = "guest";
 let selectedDocId = null;
 let documents = [];
 
@@ -46,18 +42,7 @@ const reExtractBtn = document.getElementById("re-extract-btn");
 const viewJsonHeader = document.getElementById("view-json-header");
 const headerUploadBtn = document.getElementById("header-upload-btn");
 
-// ── DOM Refs (Auth) ──────────────────────────────────────────────────────────
-const loginOverlay = document.getElementById("login-overlay");
-const loginEmailView = document.getElementById("login-email-view");
-const loginOtpView = document.getElementById("login-otp-view");
-const loginEmailInput = document.getElementById("login-email");
-const loginOtpInput = document.getElementById("login-otp");
-const sendOtpBtn = document.getElementById("send-otp-btn");
-const verifyOtpBtn = document.getElementById("verify-otp-btn");
-const loginError = document.getElementById("login-error");
-const logoutBtn = document.getElementById("logout-btn");
-const resendOtpBtn = document.getElementById("resend-otp-btn");
-const backToEmailBtn = document.getElementById("back-to-email");
+// Removed Auth DOM Refs
 
 // ── Interaction Logic ──────────────────────────────────────────────────────────
 chatInput.addEventListener("input", () => {
@@ -382,146 +367,15 @@ reExtractBtn.addEventListener("click", () => {
     }
 });
 
-// ── Auth Logic ────────────────────────────────────────────────────────────────
-async function initAuth() {
-    if (!authToken) {
-        showLogin();
-    } else {
-        hideLogin();
-        // Update user profile in sidebar
-        const emailSpan = document.getElementById("sidebar-user-email");
-        const avatarChar = document.getElementById("avatar-char");
-        if (emailSpan && userEmail) emailSpan.textContent = userEmail;
-        if (avatarChar && userEmail) avatarChar.textContent = userEmail.charAt(0).toUpperCase();
-    }
-}
-
-function showLogin() {
-    loginOverlay.classList.remove("hidden");
-    loginEmailView.classList.remove("hidden");
-    loginOtpView.classList.add("hidden");
-}
-
-function hideLogin() {
-    loginOverlay.classList.add("hidden");
-}
-
-function logout() {
-    localStorage.removeItem("receipt_ia_token");
-    localStorage.removeItem("receipt_ia_email");
-    authToken = null;
-    userEmail = null;
-    location.reload();
-}
-
-sendOtpBtn.addEventListener("click", async () => {
-    const email = loginEmailInput.value.trim();
-    if (!email || !email.includes("@")) {
-        showLoginError("Please enter a valid email");
-        return;
-    }
-
-    sendOtpBtn.disabled = true;
-    sendOtpBtn.textContent = "Sending...";
-    loginError.classList.add("hidden");
-
-    try {
-        const r = await fetch(`${API}/send-otp`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email })
-        });
-
-        if (r.ok) {
-            const data = await r.json();
-            userEmail = email;
-            loginEmailView.classList.add("hidden");
-            loginOtpView.classList.remove("hidden");
-            
-            if (data.dev) {
-                // Email delivery failed on server - do NOT auto-fill, show error
-                showLoginError("Email delivery failed. Check server email configuration.");
-                loginOtpView.classList.add("hidden");
-                loginEmailView.classList.remove("hidden");
-            } else {
-                toast("Verification code sent to " + email, "success");
-            }
-        } else {
-            const data = await r.json();
-            showLoginError(data.detail || "Failed to send code");
-        }
-    } catch (e) {
-        showLoginError("Network error. Try again.");
-    } finally {
-        sendOtpBtn.disabled = false;
-        sendOtpBtn.textContent = "Send Access Code";
-    }
-});
-
-verifyOtpBtn.addEventListener("click", async () => {
-    const otp = loginOtpInput.value.trim();
-    if (otp.length !== 6) {
-        showLoginError("Enter 6-digit code");
-        return;
-    }
-
-    verifyOtpBtn.disabled = true;
-    verifyOtpBtn.textContent = "Verifying...";
-
-    try {
-        const r = await fetch(`${API}/verify-otp`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: userEmail, otp })
-        });
-
-        if (r.ok) {
-            const data = await r.json();
-            authToken = data.access_token;
-            localStorage.setItem("receipt_ia_token", authToken);
-            localStorage.setItem("receipt_ia_email", userEmail);
-            hideLogin();
-            toast("Access Granted", "success");
-            location.reload();
-        } else {
-            const data = await r.json();
-            showLoginError(data.detail || "Invalid code");
-        }
-    } catch (e) {
-        showLoginError("Sync failed. Check connection.");
-    } finally {
-        verifyOtpBtn.disabled = false;
-        verifyOtpBtn.textContent = "Verify & Enter";
-    }
-});
-
-if (backToEmailBtn) {
-    backToEmailBtn.addEventListener("click", () => {
-        loginOtpView.classList.add("hidden");
-        loginEmailView.classList.remove("hidden");
-    });
-}
-
-if (resendOtpBtn) {
-    resendOtpBtn.addEventListener("click", () => sendOtpBtn.click());
-}
-
-if (logoutBtn) {
-    logoutBtn.addEventListener("click", logout);
-}
-
-function showLoginError(msg) {
-    loginError.textContent = msg;
-    loginError.classList.remove("hidden");
-    toast(msg, "error");
-}
-
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
-    await initAuth();
-    if (authToken) {
-        await checkHealth();
-        await loadDocuments();
-        setInterval(checkHealth, 15000);
-    }
+    // Update user profile in sidebar (defaulting to guest)
+    const emailSpan = document.getElementById("sidebar-user-email");
+    const avatarChar = document.getElementById("avatar-char");
+    if (emailSpan) emailSpan.textContent = "guest@receiptai.com";
+    if (avatarChar) avatarChar.textContent = "G";
+
+    await checkHealth();
+    await loadDocuments();
+    setInterval(checkHealth, 15000);
 })();
